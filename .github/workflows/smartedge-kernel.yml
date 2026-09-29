@@ -1,0 +1,107 @@
+# SmartEdge IIoT Gateway 内核编译工作流（arm64）
+#
+# 用法：
+#   1. 把本文件放入 mrhuzi/raspberrypi-linux 仓库的 .github/workflows/ 目录
+#      （提交到 smartedge-rpi-6.18.y 分支即可）
+#   2. 在仓库 Settings → Actions 页面确认 Actions 已启用（fork 默认禁用，需手动启用一次）
+#   3. 手动触发：Actions 标签页 → 选 "SmartEdge kernel build (arm64)" → Run workflow
+#      （push 到 smartedge-rpi-6.18.y 也会自动触发）
+#
+# 产物（Artifacts 下载后部署到 eMMC）：
+#   - kernel8.img          ← arch/arm64/boot/Image（Phase 4 部署名）
+#   - *.dtb                ← 设备树（当前为基线 3B+；Phase 1 后改为 bcm2710-rpi-custom.dtb）
+#   - overlays/*.dtbo      ← overlay 二进制（Phase 1 后改为 SmartEdge 定制三件）
+#   - modules.tar.gz       ← 解压到目标板 /lib/modules
+#
+# 说明：
+#   - defconfig 通过 workflow_dispatch 输入框选择，方便 Phase 0（bcm2711_defconfig
+#     基线验证）到 Phase 3（bcm2711_avnet_defconfig）之间切换，不用改 YAML
+#   - ccache 缓存约 5GB，冷构建约 60~90 分钟（4 核 runner），热构建约 10~20 分钟
+#   - 仓库为 public，Actions 分钟数免费
+
+name: SmartEdge kernel build (arm64)
+
+on:
+  workflow_dispatch:
+    inputs:
+      defconfig:
+        description: "Kernel defconfig to build"
+        required: true
+        default: "bcm2711_defconfig"
+  push:
+    branches:
+      - smartedge-rpi-6.18.y
+
+env:
+  CCACHE_BASEDIR: ${{ github.workspace }}
+  CCACHE_NOHASHDIR: "1"
+
+jobs:
+  build:
+    name: Build kernel (arm64)
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup 2>/dev/null || true
+          df -h /
+
+      - name: Checkout kernel source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1   # 内核仓库巨大，浅克隆即可
+
+      - name: Install toolchain and build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            gcc-aarch64-linux-gnu \
+            bc bison flex libssl-dev libelf-dev \
+            python3 ccache zstd dwarves kmod
+
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ccache-arm64-${{ inputs.defconfig || 'bcm2711_defconfig' }}-${{ github.sha }}
+          restore-keys: |
+            ccache-arm64-${{ inputs.defconfig || 'bcm2711_defconfig' }}-
+
+      - name: Configure ccache
+        run: |
+          ccache -M 5G
+          ccache -z
+
+      - name: Kernel config
+        run: |
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
+               ${{ inputs.defconfig || 'bcm2711_defconfig' }}
+
+      - name: Build kernel
+        run: |
+          make ARCH=arm64 CROSS_COMPILE="ccache aarch64-linux-gnu-" -j"$(nproc)"
+          ccache -s
+
+      - name: Install modules
+        run: |
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
+               INSTALL_MOD_PATH="$PWD/staging" modules_install
+          # build/source 符号链接指向构建机路径，目标板无用且会破坏 tar 包
+          rm -f staging/lib/modules/*/build staging/lib/modules/*/source
+
+      - name: Collect outputs
+        run: |
+          mkdir -p out/overlays
+          cp arch/arm64/boot/Image out/kernel8.img
+          cp arch/arm64/boot/dts/broadcom/bcm2710-rpi-3-b-plus.dtb out/
+          cp arch/arm64/boot/dts/overlays/*.dtbo out/overlays/
+          tar -C staging -czf out/modules.tar.gz lib/modules
+          ls -lh out out/overlays
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: smartedge-kernel-${{ inputs.defconfig || 'bcm2711_defconfig' }}
+          path: out/
+          retention-days: 14
