@@ -1,23 +1,20 @@
 # SmartEdge IIoT Gateway 内核编译工作流（arm64）
 #
 # 用法：
-#   1. 把本文件放入 mrhuzi/raspberrypi-linux 仓库的 .github/workflows/ 目录
-#      （提交到 smartedge-rpi-6.18.y 分支即可）
-#   2. 在仓库 Settings → Actions 页面确认 Actions 已启用（fork 默认禁用，需手动启用一次）
-#   3. 手动触发：Actions 标签页 → 选 "SmartEdge kernel build (arm64)" → Run workflow
-#      （push 到 smartedge-rpi-6.18.y 也会自动触发）
+#   1. 放在 mrhuzi/raspberrypi-linux 仓库的 .github/workflows/ 目录
+#      （提交到 smartedge-rpi-6.18.y 分支）
+#   2. 手动触发完整编译：Actions 标签页 → "SmartEdge kernel build (arm64)" → Run workflow
+#   3. 每次 push 到 smartedge-rpi-6.18.y 会自动运行【只有】快速设备树检查 (job: dtbs)
+#
+# 两个 job 的分工：
+#   - dtbs  ：只编译设备树，2~5 分钟出结果。改 DT 的日常迭代跑这个。
+#   - build ：完整内核编译（手动触发），冷构建 60~90 分钟 / ccache 热构建 10~20 分钟。
 #
 # 产物（Artifacts 下载后部署到 eMMC）：
 #   - kernel8.img          ← arch/arm64/boot/Image（Phase 4 部署名）
-#   - *.dtb                ← 设备树（当前为基线 3B+；Phase 1 后改为 bcm2710-rpi-custom.dtb）
-#   - overlays/*.dtbo      ← overlay 二进制（Phase 1 后改为 SmartEdge 定制三件）
+#   - *.dtb                ← 设备树
+#   - overlays/*.dtbo      ← overlay 二进制
 #   - modules.tar.gz       ← 解压到目标板 /lib/modules
-#
-# 说明：
-#   - defconfig 通过 workflow_dispatch 输入框选择，方便 Phase 0（bcm2711_defconfig
-#     基线验证）到 Phase 3（bcm2711_avnet_defconfig）之间切换，不用改 YAML
-#   - ccache 缓存约 5GB，冷构建约 60~90 分钟（4 核 runner），热构建约 10~20 分钟
-#   - 仓库为 public，Actions 分钟数免费
 
 name: SmartEdge kernel build (arm64)
 
@@ -37,8 +34,56 @@ env:
   CCACHE_NOHASHDIR: "1"
 
 jobs:
+  # ---------------------------------------------------------------
+  # 快速设备树校验：每次 push 自动运行，无需等完整编译
+  # ---------------------------------------------------------------
+  dtbs:
+    name: Device tree check
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout kernel source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install device tree tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            bc bison flex gcc device-tree-compiler
+
+      - name: Build device trees (arm64)
+        run: |
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- bcm2711_defconfig
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- dtbs -j"$(nproc)"
+
+      - name: Check SmartEdge board device tree
+        run: |
+          set -e
+          DTB=arch/arm64/boot/dts/broadcom/bcm2710-rpi-custom.dtb
+          test -f "$DTB" || { echo "::error::$DTB was not built - check Makefile entry"; exit 1; }
+          ls -l "$DTB"
+          # 反编译抽查关键节点，避免"编译通过但节点没进去"的隐性错误
+          dtc -I dtb -O dts "$DTB" -o smartedge.dts
+          for node in "sc16is740@0" "mcp2515@1" "tpm_tis@2" "attiny@33" "gpio@43" "gpio@44" "rtc@51"; do
+            grep -q "$node" smartedge.dts || { echo "::error::missing node: $node"; exit 1; }
+            echo "ok: $node"
+          done
+
+      - name: Upload device trees
+        uses: actions/upload-artifact@v4
+        with:
+          name: smartedge-dtbs
+          path: arch/arm64/boot/dts/broadcom/bcm2710-rpi-custom.dtb
+          retention-days: 7
+
+  # ---------------------------------------------------------------
+  # 完整内核编译：仅手动触发（避免每次 push 都烧 1 小时）
+  # ---------------------------------------------------------------
   build:
     name: Build kernel (arm64)
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 150
     steps:
@@ -50,7 +95,7 @@ jobs:
       - name: Checkout kernel source
         uses: actions/checkout@v4
         with:
-          fetch-depth: 1   # 内核仓库巨大，浅克隆即可
+          fetch-depth: 1
 
       - name: Install toolchain and build deps
         run: |
@@ -95,7 +140,7 @@ jobs:
           mkdir -p out/overlays
           cp arch/arm64/boot/Image out/kernel8.img
           cp arch/arm64/boot/dts/broadcom/bcm2710-rpi-3-b-plus.dtb out/
-          # Phase 1 之后才会存在 SmartEdge 定制设备树，基线构建时跳过
+          # SmartEdge 定制设备树（Phase 1 起应该存在）
           if [ -f arch/arm64/boot/dts/broadcom/bcm2710-rpi-custom.dtb ]; then
             cp arch/arm64/boot/dts/broadcom/bcm2710-rpi-custom.dtb out/
           fi
