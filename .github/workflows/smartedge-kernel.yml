@@ -111,9 +111,11 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.ccache
-          key: ccache-arm64-${{ inputs.defconfig || 'bcm2711_defconfig' }}-${{ github.sha }}
+          # 不把 defconfig 放进 key：SmartEdge defconfig 与基线只差几个符号，
+          # 共用同一份 ccache 能让首次 SmartEdge 构建复用基线结果（否则又是冷构建）
+          key: ccache-arm64-${{ github.sha }}
           restore-keys: |
-            ccache-arm64-${{ inputs.defconfig || 'bcm2711_defconfig' }}-
+            ccache-arm64-
 
       - name: Configure ccache
         run: |
