@@ -53,11 +53,28 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             bc bison flex gcc device-tree-compiler
 
+      - name: Check SmartEdge defconfig
+        # 确认 defconfig 里的符号真的落进了 .config（Kconfig 依赖不满足时会静默丢弃）
+        run: |
+          set -e
+          make ARCH=arm64 bcm2711_avnet_defconfig
+          for sym in CONFIG_MFD_ATTINY CONFIG_ATTINY_WDT CONFIG_ATTINY_LED \
+                     CONFIG_ATTINY_BTN CONFIG_GPIO_FXL6408 CONFIG_CAN_MCP251X \
+                     CONFIG_SERIAL_SC16IS7XX CONFIG_SERIAL_SC16IS7XX_SPI \
+                     CONFIG_TCG_TIS_SPI CONFIG_RTC_DRV_PCF8563 \
+                     CONFIG_SPI_BCM2835AUX CONFIG_MMC_BCM2835_MMC \
+                     CONFIG_USB_NET_QMI_WWAN; do
+            line=$(grep -m1 "^$sym=" .config || true)
+            case "$line" in
+              "$sym=y"|"$sym=m") echo "ok: $line" ;;
+              *) echo "::error::$sym not enabled (got '${line:-<absent>}')"; exit 1 ;;
+            esac
+          done
+
       - name: Build device trees (arm64)
         # DT 编译只需 cpp/dtc，不需要交叉工具链；
         # 但 kconfig 会检查 CROSS_COMPILE 指定的编译器是否存在，所以这里干脆不设。
         run: |
-          make ARCH=arm64 bcm2711_defconfig
           make ARCH=arm64 dtbs -j"$(nproc)"
 
       - name: Check SmartEdge board device tree
