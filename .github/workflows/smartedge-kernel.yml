@@ -95,6 +95,10 @@ jobs:
           mkdir -p out/overlays
           cp arch/arm64/boot/Image out/kernel8.img
           cp arch/arm64/boot/dts/broadcom/bcm2710-rpi-3-b-plus.dtb out/
+          # Phase 1 之后才会存在 SmartEdge 定制设备树，基线构建时跳过
+          if [ -f arch/arm64/boot/dts/broadcom/bcm2710-rpi-custom.dtb ]; then
+            cp arch/arm64/boot/dts/broadcom/bcm2710-rpi-custom.dtb out/
+          fi
           cp arch/arm64/boot/dts/overlays/*.dtbo out/overlays/
           tar -C staging -czf out/modules.tar.gz lib/modules
           ls -lh out out/overlays
