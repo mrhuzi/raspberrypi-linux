@@ -82,7 +82,7 @@ static void worker_func(struct work_struct *work)
 
 static void timer_func(struct timer_list *t)
 {
-	struct attiny_btn_drvdata *drvdata = from_timer(drvdata, t, timer);
+	struct attiny_btn_drvdata *drvdata = timer_container_of(drvdata, t, timer);
 
 	mod_timer(t, jiffies + msecs_to_jiffies(POLL_MS));
 	schedule_work(&drvdata->work);
@@ -126,7 +126,7 @@ static const struct file_operations attiny_btn_fops = {
 	.owner		= THIS_MODULE,
 	.read		= attiny_btn_read,
 	.poll		= attiny_btn_poll,
-	.llseek		= no_llseek,
+	.llseek		= noop_llseek,
 };
 
 static void devm_misc_press_release(struct device *dev, void *res)
