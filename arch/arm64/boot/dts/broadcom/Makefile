@@ -20,6 +20,7 @@ dtb-$(CONFIG_ARCH_BCM2835) += bcm2710-rpi-zero-2.dtb \
 			      bcm2710-rpi-2-b.dtb \
 			      bcm2710-rpi-3-b.dtb \
 			      bcm2710-rpi-3-b-plus.dtb \
+			      bcm2710-rpi-custom.dtb \
 			      bcm2710-rpi-cm0.dtb \
 			      bcm2710-rpi-cm3.dtb \
 			      bcm2711-rpi-cm4.dtb \
