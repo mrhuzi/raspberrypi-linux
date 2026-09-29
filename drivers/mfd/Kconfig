@@ -2593,5 +2593,54 @@ config MFD_MAX7360
 	  additional drivers must be enabled in order to use the functionality
 	  of the device.
 
+config MFD_ATTINY
+	tristate "Avnet SmartEdge IIoT Gateway ATtiny system MCU"
+	depends on I2C
+	select MFD_CORE
+	help
+	  Select this option to enable the ATtiny system management MCU found
+	  on the Avnet SmartEdge IIoT Gateway.  It is the core driver for the
+	  watchdog, the front panel LEDs and the factory reset button.
+
+	  This driver provides common support for accessing the device;
+	  additional drivers must be enabled in order to use the functionality
+	  of the device.
+
+	  To compile this driver as a module, choose M here: the module will
+	  be called attiny-mfd.
+
+config ATTINY_WDT
+	tristate "Avnet SmartEdge IIoT Gateway ATtiny watchdog"
+	depends on MFD_ATTINY
+	select WATCHDOG_CORE
+	help
+	  Say yes here to enable the hardware watchdog of the ATtiny system
+	  management MCU on the Avnet SmartEdge IIoT Gateway.
+
+	  To compile this driver as a module, choose M here: the module will
+	  be called attiny-wdt.
+
+config ATTINY_LED
+	tristate "Avnet SmartEdge IIoT Gateway ATtiny LED support"
+	depends on MFD_ATTINY
+	select LEDS_CLASS
+	help
+	  Say yes here to enable the front panel LEDs driven by the ATtiny
+	  system management MCU on the Avnet SmartEdge IIoT Gateway.
+
+	  To compile this driver as a module, choose M here: the module will
+	  be called attiny-led.
+
+config ATTINY_BTN
+	tristate "Avnet SmartEdge IIoT Gateway ATtiny button support"
+	depends on MFD_ATTINY
+	help
+	  Say yes here to enable the factory reset button polled by the ATtiny
+	  system management MCU on the Avnet SmartEdge IIoT Gateway.  It
+	  creates the /dev/button, /dev/reset and /dev/factoryreset devices.
+
+	  To compile this driver as a module, choose M here: the module will
+	  be called attiny-btn.
+
 endmenu
 endif
