@@ -32,6 +32,9 @@ on:
 env:
   CCACHE_BASEDIR: ${{ github.workspace }}
   CCACHE_NOHASHDIR: "1"
+  # ccache 4.x 默认走 XDG 路径（~/.cache/ccache），而 actions/cache 又不会展开
+  # 波浪号——两边对不上就会静默退化成"每次冷构建"。显式钉死同一个绝对路径。
+  CCACHE_DIR: /home/runner/.ccache
 
 jobs:
   # ---------------------------------------------------------------
@@ -127,7 +130,7 @@ jobs:
       - name: Restore ccache
         uses: actions/cache@v4
         with:
-          path: ~/.ccache
+          path: /home/runner/.ccache
           # 不把 defconfig 放进 key：SmartEdge defconfig 与基线只差几个符号，
           # 共用同一份 ccache 能让首次 SmartEdge 构建复用基线结果（否则又是冷构建）
           key: ccache-arm64-${{ github.sha }}
