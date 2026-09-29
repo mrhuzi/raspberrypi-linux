@@ -54,9 +54,11 @@ jobs:
             bc bison flex gcc device-tree-compiler
 
       - name: Build device trees (arm64)
+        # DT 编译只需 cpp/dtc，不需要交叉工具链；
+        # 但 kconfig 会检查 CROSS_COMPILE 指定的编译器是否存在，所以这里干脆不设。
         run: |
-          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- bcm2711_defconfig
-          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- dtbs -j"$(nproc)"
+          make ARCH=arm64 bcm2711_defconfig
+          make ARCH=arm64 dtbs -j"$(nproc)"
 
       - name: Check SmartEdge board device tree
         run: |
