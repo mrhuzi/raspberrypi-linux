@@ -35,6 +35,7 @@
 		serial0 = &uart1;
 		serial1 = &uart0;
 		mmc1 = &mmcnr;
+		bluetooth = &minibt;
 	};
 
 	/* SmartEdge: external oscillators for UART bridge and CAN controller */
@@ -189,9 +190,13 @@
 	};
 
 	uart1_bt_pins: uart1_bt_pins {
-		brcm,pins = <32 33 30 31>;
+		/*
+		 * SmartEdge: 2-wire only. GPIO30/31 are SC16IS740 IRQ and
+		 * SPI2 CE0 on this board - they must never be muxed to UART.
+		 */
+		brcm,pins = <32 33>;
 		brcm,function = <BCM2835_FSEL_ALT5>; /* alt5=UART1 */
-		brcm,pull = <0 2 2 0>;
+		brcm,pull = <0 2>;
 	};
 
 	/* SmartEdge: interrupt inputs from SPI2 peripherals and DIO expander */
@@ -244,16 +249,29 @@
 	};
 };
 
+/*
+ * SmartEdge: PL011 (uart0) is disabled. Whenever uart0 is enabled, the
+ * official GPU firmware performs standard Pi3B+ Bluetooth bring-up on it
+ * (pins 30-33), which tramples GPIO30 (SC16IS740 IRQ) and GPIO31 (SPI2 CE0).
+ * With uart0 off the firmware skips BT bring-up entirely (verified 2026-10-09),
+ * while the 32.768kHz LPO clock on GPIO43 keeps running: the dt-blob declares
+ * pin_define@WL_LPO_CLK (internal, 43), which the firmware services on every
+ * boot regardless of uart0 state.
+ */
 &uart0 {
+	status = "disabled";
+};
+
+/* SmartEdge: onboard Bluetooth on the mini-uart (2-wire) + GPIO43 LPO clock */
+&uart1 {
 	pinctrl-names = "default";
-	pinctrl-0 = <&uart0_pins &bt_pins>;
+	pinctrl-0 = <&uart1_bt_pins &bt_pins>;
 	status = "okay";
 };
 
-&uart1 {
-	pinctrl-names = "default";
-	pinctrl-0 = <&uart1_pins>;
+&minibt {
 	status = "okay";
+	max-speed = <921600>;
 };
 
 &spi0 {
