@@ -493,5 +493,27 @@ i2c_csi_dsi0: &i2c0 {
 		eth_led1 = <&eth_phy>,"microchip,led-modes:4";
 		eth_downshift_after = <&eth_phy>,"microchip,downshift-after:0";
 		eth_max_speed = <&eth_phy>,"max-speed:0";
+
+		/*
+		 * SmartEdge serial options (config.txt) - replicating the original
+		 * Avnet four-option block as far as this board + official firmware
+		 * physically allow:
+		 *
+		 *   default            onboard BT on the mini-uart (the original
+		 *                      "option 2" BT arrangement, done in DT because
+		 *                      6.18 serdev cannot be moved by overlays)
+		 *
+		 *   smartedge_bt=off   disable onboard BT (original "option 3");
+		 *                      uart1 stays up as a plain /dev/ttyS0
+		 *
+		 * Original options 0/1 (BT on ttyAMA0/PL011) are NOT reproducible:
+		 * whenever uart0 is enabled the official GPU firmware rewrites its
+		 * pin group to the standard Pi3 BT quad (GPIO30-33), trampling the
+		 * SC16IS740 IRQ and SPI2 CE0 wired there on this board.
+		 *
+		 * BT baud rate is adjustable with the upstream krnbt_baudrate
+		 * override (e.g. dtparam=krnbt_baudrate=115200).
+		 */
+		smartedge_bt = <&minibt>,"status";
 	};
 };
