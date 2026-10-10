@@ -10,6 +10,7 @@
 #   - dtbs  ：只编译设备树，2~5 分钟出结果。改 DT 的日常迭代跑这个。
 #   - build ：完整内核编译（手动触发），冷构建 60~90 分钟 / ccache 热构建 10~20 分钟。
 #
+# 2026-10-10: synced upstream rpi-6.18.y (a35677f)
 # 产物（Artifacts 下载后部署到 eMMC）：
 #   - kernel8.img          ← arch/arm64/boot/Image（Phase 4 部署名）
 #   - *.dtb                ← 设备树
