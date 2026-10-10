@@ -7,6 +7,10 @@ on:
     paths:
       - ".github/workflows/sync-upstream.yml"
 
+# fork default GITHUB_TOKEN is read-only; merge push needs write
+permissions:
+  contents: write
+
 jobs:
   merge:
     name: Merge upstream rpi-6.18.y
