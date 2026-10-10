@@ -213,7 +213,8 @@ brcmf_cyw_external_auth(struct wiphy *wiphy, struct net_device *dev,
 	drvr = ifp->drvr;
 	if (params->status == WLAN_STATUS_SUCCESS) {
 		if (params->pmkid)
-			memcpy(auth_status.pmkid, params->pmkid, WLAN_PMKID_LEN);
+			memcpy(auth_status.pmkid, params->pmkid,
+			       WLAN_PMKID_LEN);
 		auth_status.flags = cpu_to_le16(BRCMF_EXTAUTH_SUCCESS);
 	} else {
 		bphy_err(drvr, "External authentication failed: status=%d\n",
