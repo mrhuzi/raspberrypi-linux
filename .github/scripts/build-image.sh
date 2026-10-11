@@ -112,7 +112,12 @@ if ! grep -q '^avnet:' "$ROOT/etc/passwd"; then
     hash=$(openssl passwd -6 avnet)
     echo "avnet:${hash}:2:0:99999:7:::" >> "$ROOT/etc/shadow"
 fi
-echo 'avnet:avnet' | chpasswd -R "$ROOT"
+echo 'avnet:avnet' | chpasswd -R "$ROOT" 2>/dev/null || true
+# chpasswd -R invokes the TARGET's PAM (arm64 modules, unloadable on x86 host)
+# so it always fails. Write the hash directly instead - host-side, no PAM.
+hash=$(openssl passwd -6 avnet)
+sed -i "s|^avnet:[^:]*:|avnet:${hash}:|" "$ROOT/etc/shadow"
+grep -q "^avnet:${hash}:" "$ROOT/etc/shadow" || { echo "shadow write failed"; exit 1; }
 if ! grep -q '^sudo:.*avnet' "$ROOT/etc/group"; then
     awk -F: 'BEGIN{OFS=":"} $1=="sudo"{if($4=="")$4="avnet";else $4=$4",avnet"} {print}' \
         "$ROOT/etc/group" > "$ROOT/etc/group.new"
