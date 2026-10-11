@@ -1,0 +1,54 @@
+name: SmartEdge Lite image
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [smartedge-rpi-6.18.y]
+    paths:
+      - ".github/workflows/smartedge-image.yml"
+      - ".github/scripts/build-image.sh"
+      - "boot-firmware/**"
+      - "image/**"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download latest successful kernel build artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          repo="${{ github.repository }}"
+          run_id=$(gh api "repos/$repo/actions/workflows/smartedge-kernel.yml/runs?branch=smartedge-rpi-6.18.y&event=workflow_dispatch&status=success&per_page=5" --jq '.workflow_runs[0].id')
+          echo "kernel build run: $run_id"
+          art_id=$(gh api "repos/$repo/actions/runs/$run_id/artifacts" --jq '[.artifacts[]] | sort_by(.created_at) | reverse | .[0].id')
+          gh api "repos/$repo/actions/runs/$run_id/artifacts" --jq '.artifacts[] | "\(.name) \(.size_in_bytes)"'
+          echo "artifact id: $art_id"
+          mkdir -p artifact
+          gh api "repos/$repo/actions/artifacts/$art_id/zip" > artifact.zip
+          unzip -q artifact.zip -d artifact
+          ls -la artifact
+
+      - name: Build image
+        run: |
+          sudo -E env \
+            ARTDIR="$GITHUB_WORKSPACE/artifact" \
+            WORKDIR="$RUNNER_TEMP" \
+            bash "$GITHUB_WORKSPACE/.github/scripts/build-image.sh"
+
+      - name: Upload image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: smartedge-lite-image
+          path: |
+            ${{ runner.temp }}/*.img.xz
+            ${{ runner.temp }}/*.img.xz.sha256
+          retention-days: 90
+          compression-level: 0
