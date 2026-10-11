@@ -1,0 +1,15 @@
+[Unit]
+Description=SmartEdge first-boot rootfs resize
+DefaultDependencies=no
+After=systemd-modules-load.service local-fs.target
+Before=sysinit.target shutdown.target
+ConditionPathExists=!/var/lib/smartedge-resize-done
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/firstboot-resize.sh
+ExecStartPost=/bin/sh -c 'mkdir -p /var/lib && touch /var/lib/smartedge-resize-done'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
