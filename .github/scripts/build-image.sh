@@ -88,7 +88,8 @@ touch "$BOOT/ssh"
 
 echo "== 7. rootfs: kernel modules =="
 tar -C "$ROOT" -xf "$ARTDIR/modules.tar.gz"
-KVER=$(tar -tf "$ARTDIR/modules.tar.gz" | grep -oE 'lib/modules/[^/]+' | head -1 | cut -d/ -f3)
+TARLIST=$(tar -tf "$ARTDIR/modules.tar.gz")
+KVER=$(printf '%s\n' "$TARLIST" | grep -oE 'lib/modules/[^/]+' | sort -u | cut -d/ -f3 | head -n 1)
 echo "kernel version: $KVER"
 # drop the stock kernel's modules to save space and confusion
 find "$ROOT/lib/modules" -mindepth 1 -maxdepth 1 -type d ! -name "$KVER" -exec rm -rf {} +
