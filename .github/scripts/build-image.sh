@@ -142,7 +142,10 @@ echo "sudo group: $(grep '^sudo:' "$ROOT/etc/group")"
 grep -q 'avnet' "$ROOT/etc/group" || fail "group avnet"
 echo "avnet shadow: $(grep -c '^avnet:\$6\$' "$ROOT/etc/shadow") entry"
 grep -q '^avnet:\$6\$' "$ROOT/etc/shadow" || fail "shadow hash"
-[ -f "$ROOT/etc/systemd/system/multi-user.target.wants/attiny-wdt-feed.service" ] || fail "wdt unit enable"
+# NOTE: use -L (symlink exists) not -f: the link target is an absolute path
+# that only resolves on the TARGET filesystem, not on the build host.
+[ -L "$ROOT/etc/systemd/system/multi-user.target.wants/attiny-wdt-feed.service" ] || fail "wdt unit enable"
+[ -f "$ROOT/etc/systemd/system/attiny-wdt-feed.service" ] || fail "wdt unit file"
 [ -s "$ROOT/lib/modules/$KVER/modules.dep" ] || fail "modules.dep ($(stat -c%s "$ROOT/lib/modules/$KVER/modules.dep" 2>/dev/null || echo missing))"
 echo "modules.dep size: $(stat -c%s "$ROOT/lib/modules/$KVER/modules.dep")"
 echo "ALL SANITY CHECKS PASSED"
