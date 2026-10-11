@@ -125,16 +125,27 @@ if ! grep -q '^sudo:.*avnet' "$ROOT/etc/group"; then
 fi
 
 echo "== 10. sanity checks =="
-test -f "$BOOT/kernel8.img"
-test -f "$BOOT/bcm2710-rpi-custom.dtb"
-test -f "$BOOT/dt-blob.bin"
-test -f "$BOOT/ssh"
-grep -q 'uart0=off' "$BOOT/config.txt"
-grep -q 'regdom=CN' "$BOOT/cmdline.txt"
-grep -q '^avnet:' "$ROOT/etc/passwd"
-grep -q 'avnet' "$ROOT/etc/group"
-test -f "$ROOT/etc/systemd/system/multi-user.target.wants/attiny-wdt-feed.service"
-test -s "$ROOT/lib/modules/$KVER/modules.dep"
+fail() { echo "SANITY FAIL: $*"; exit 1; }
+[ -f "$BOOT/kernel8.img" ] || fail kernel8.img
+[ -f "$BOOT/bcm2710-rpi-custom.dtb" ] || fail dtb
+[ -f "$BOOT/dt-blob.bin" ] || fail dt-blob.bin
+[ -f "$BOOT/bootcode.bin" ] || fail bootcode.bin
+[ -f "$BOOT/start.elf" ] || fail start.elf
+[ -f "$BOOT/ssh" ] || fail ssh
+grep -q 'uart0=off' "$BOOT/config.txt" || fail "config uart0=off"
+grep -q 'regdom=CN' "$BOOT/cmdline.txt" || fail "cmdline regdom"
+grep -q 'init_resize' "$BOOT/cmdline.txt" || echo "NOTE: no init_resize in cmdline"
+echo "cmdline.txt: $(cat "$BOOT/cmdline.txt")"
+echo "avnet passwd: $(grep '^avnet:' "$ROOT/etc/passwd" || echo MISSING)"
+grep -q '^avnet:' "$ROOT/etc/passwd" || fail "passwd avnet"
+echo "sudo group: $(grep '^sudo:' "$ROOT/etc/group")"
+grep -q 'avnet' "$ROOT/etc/group" || fail "group avnet"
+echo "avnet shadow: $(grep -c '^avnet:\$6\$' "$ROOT/etc/shadow") entry"
+grep -q '^avnet:\$6\$' "$ROOT/etc/shadow" || fail "shadow hash"
+[ -f "$ROOT/etc/systemd/system/multi-user.target.wants/attiny-wdt-feed.service" ] || fail "wdt unit enable"
+[ -s "$ROOT/lib/modules/$KVER/modules.dep" ] || fail "modules.dep ($(stat -c%s "$ROOT/lib/modules/$KVER/modules.dep" 2>/dev/null || echo missing))"
+echo "modules.dep size: $(stat -c%s "$ROOT/lib/modules/$KVER/modules.dep")"
+echo "ALL SANITY CHECKS PASSED"
 
 echo "== 11. detach + compress =="
 sync
