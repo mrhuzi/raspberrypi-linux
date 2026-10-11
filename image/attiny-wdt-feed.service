@@ -1,0 +1,13 @@
+[Unit]
+Description=SmartEdge ATtiny hardware watchdog feeder
+DefaultDependencies=no
+After=systemd-modules-load.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/attiny-wdt-feed.sh
+Restart=always
+RestartSec=1
+
+[Install]
+WantedBy=multi-user.target
