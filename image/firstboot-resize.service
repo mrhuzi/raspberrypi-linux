@@ -1,14 +1,15 @@
 [Unit]
-Description=SmartEdge first-boot rootfs resize
-DefaultDependencies=no
-After=systemd-modules-load.service local-fs.target
-Before=sysinit.target shutdown.target
-ConditionPathExists=!/var/lib/smartedge-resize-done
+Description=SmartEdge first-boot rootfs resize (grow to fill the whole eMMC)
+Documentation=man:resize2fs(8)
+# Plain after-local-fs oneshot: boot never depends on it (unlike init=),
+# a failure only means "retry on next boot".
+After=local-fs.target
+ConditionPathExists=!/var/lib/smartedge/.rootfs_resized
 
 [Service]
 Type=oneshot
 ExecStart=/usr/local/sbin/firstboot-resize.sh
-ExecStartPost=/bin/sh -c 'mkdir -p /var/lib && touch /var/lib/smartedge-resize-done'
+TimeoutStartSec=600
 RemainAfterExit=yes
 
 [Install]
