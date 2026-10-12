@@ -56,6 +56,10 @@ else
 fi
 ROOT_BN=$(basename "$ROOT_PART")
 DEV=$(lsblk -nro pkname "$ROOT_PART") || { log "FATAL: cannot resolve parent disk of $ROOT_PART"; exit 1; }
+# lsblk PKNAME prints the kernel name WITHOUT the /dev/ prefix ("mmcblk0");
+# missing this prefix made every grow method fail instantly with
+# "cannot open mmcblk0" (hardware failure 2026-10-12, CI selftest caught it)
+case "$DEV" in /dev/*) ;; *) DEV="/dev/$DEV" ;; esac
 PARTNUM=$(cat "/sys/class/block/$ROOT_BN/partition") 2>/dev/null \
     || { log "FATAL: no partition number for $ROOT_BN"; exit 1; }
 
