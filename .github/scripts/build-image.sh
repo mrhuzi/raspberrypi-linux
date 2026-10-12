@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Build the SmartEdge Lite eMMC image:
-#   official Raspberry Pi OS Lite (arm64, Trixie, pinned release)
+# Build a SmartEdge eMMC image:
+#   official Raspberry Pi OS (arm64, Trixie, pinned release, Lite or Desktop)
 #   + SmartEdge kernel 6.18.55-v8+ + custom DTB + Avnet boot firmware
 #   + attiny-wdt feeder + avnet user + first-boot rootfs resize
 #
@@ -8,9 +8,11 @@
 #   ARTDIR  - directory with the unpacked kernel build artifact
 #             (kernel8.img, bcm2710-rpi-custom.dtb, overlays/, modules.tar.gz)
 #   WORKDIR - scratch directory (runner temp)
+#   IMAGE_VARIANT - "lite" (default) or "desktop": which stock OS image to
+#             build from. Both get identical SmartEdge injection.
 #   PRE_EXPAND_GIB - optional. When set (integer), the image is pre-expanded
 #             to this many GiB at build time (e.g. 14 for a 16GB eMMC board).
-#             Default: unset -> compact image (~2.9GB) that grows to fill
+#             Default: unset -> compact image that grows to fill
 #             whatever eMMC it is flashed to via firstboot-resize.service
 #             (online grow, no init=, no initramfs, no reboot).
 #
@@ -23,13 +25,27 @@ case "${PRE_EXPAND_GIB:-}" in
     '') ;;
     *[!0-9]*) echo "PRE_EXPAND_GIB must be an integer number of GiB"; exit 1 ;;
 esac
+IMAGE_VARIANT="${IMAGE_VARIANT:-lite}"
+case "$IMAGE_VARIANT" in
+    lite|desktop) ;;
+    *) echo "IMAGE_VARIANT must be 'lite' or 'desktop' (got: $IMAGE_VARIANT)"; exit 1 ;;
+esac
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 
-# ---- pinned base image -------------------------------------------------------
-BASE_URL="https://downloads.raspberrypi.com/raspios_lite_arm64/images/raspios_lite_arm64-2026-10-06"
-IMG="2026-10-06-raspios-trixie-arm64-lite.img.xz"
-IMG_SHA256="483db18a48da399b5b7022ffae9a07bc6d99daab30e593aedac09b69ff422843"
+# ---- pinned base images (same 2026-10-06 Trixie release, two flavors) --------
+case "$IMAGE_VARIANT" in
+    lite)
+        BASE_URL="https://downloads.raspberrypi.com/raspios_lite_arm64/images/raspios_lite_arm64-2026-10-06"
+        IMG="2026-10-06-raspios-trixie-arm64-lite.img.xz"
+        IMG_SHA256="483db18a48da399b5b7022ffae9a07bc6d99daab30e593aedac09b69ff422843"
+        ;;
+    desktop)
+        BASE_URL="https://downloads.raspberrypi.com/raspios_arm64/images/raspios_arm64-2026-10-06"
+        IMG="2026-10-06-raspios-trixie-arm64.img.xz"
+        IMG_SHA256="976766570bee2aaf3047dd78649cfe82abb8fe9687b7f15030cd533ba4e9f7a9"
+        ;;
+esac
 
 cd "$WORKDIR"
 
@@ -260,7 +276,7 @@ else
 fi
 
 echo "== 14. compress =="
-OUT="smartedge-lite-arm64-$(date +%Y%m%d)-$KVER.img"
+OUT="smartedge-${IMAGE_VARIANT}-arm64-$(date +%Y%m%d)-$KVER.img"
 mv base.img "$OUT"
 XZ_OPT="-T0 -6" xz -T0 -6 "$OUT"
 sha256sum "$OUT.xz" > "$OUT.xz.sha256"
