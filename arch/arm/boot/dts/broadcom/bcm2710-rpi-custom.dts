@@ -3,8 +3,15 @@
  * Avnet SmartEdge Industrial IoT Gateway (AVTSE-RPI-IIOTG) device tree.
  *
  * Ported to kernel 6.18 (arm64) from the old 4.14.79 BSP:
- *   base template : bcm2710-rpi-3-b-plus.dts @ rpi-6.18.y
- *   source        : bcm2710-rpi-custom.dts   @ old Avnet fork 4.14.79
+ *   base template : bcm2710-rpi-3-b.dts @ rpi-6.18.y
+ *   source        : bcm2710-rpi-custom.dts @ old Avnet fork 4.14.79
+ *
+ * NOTE: the core board is a Raspberry Pi 3 Model B (BCM2837), NOT a 3B+.
+ * Verified 2026-10-12: old Avnet DTS compatible "raspberrypi,3-model-b",
+ * smsc9514 ethernet, BCM43430A1 wifi/bt, 10/100 LAN, revision 0x60a220b0.
+ * (A previous revision of this file was based on the 3B+ template; the
+ * only real difference was the LAN7515 node and LED wiring, both
+ * corrected here.)
  *
  * Board specifics driven here:
  *   I2C1 (50kHz, ATtiny clock stretching): @0x33 ATtiny, @0x43/@0x44 FXL6408,
@@ -13,14 +20,14 @@
  *               CE2=GPIO45 SLB9670 TPM
  *   eMMC: SD1 pins GPIO34-39
  *
- * Differences from the 3B+ template marked with "SmartEdge:" comments below.
+ * Differences from the 3B template marked with "SmartEdge:" comments below.
  */
 
 /dts-v1/;
 
 #include "bcm2710.dtsi"
 #include "bcm2709-rpi.dtsi"
-#include "bcm283x-rpi-lan7515.dtsi"
+#include "bcm283x-rpi-smsc9514.dtsi"
 #include "bcm283x-rpi-csi1-2lane.dtsi"
 #include "bcm283x-rpi-i2c0mux_0_44.dtsi"
 #include "bcm271x-rpi-bt.dtsi"
@@ -28,7 +35,7 @@
 
 / {
 	compatible = "avnet,smartedge-iiot-gateway",
-		     "raspberrypi,3-model-b-plus", "brcm,bcm2837";
+		     "raspberrypi,3-model-b", "brcm,bcm2837";
 	model = "Avnet SmartEdge Industrial IoT Gateway";
 
 	aliases {
@@ -59,11 +66,11 @@
 
 &gpio {
 	/*
-	 * SmartEdge: GPIO usage differs from the 3B+ reference board:
+	 * SmartEdge: GPIO usage differs from the stock reference board:
 	 *   GPIO28  FXL6408 @0x43 interrupt (DIO)
 	 *   GPIO29  MCP2515  interrupt
 	 *   GPIO30  SC16IS740 interrupt
-	 *   GPIO31  SPI2 CS0  (also claimed by the BT uart1 pins on a stock 3B+)
+	 *   GPIO31  SPI2 CS0  (also claimed by the BT uart0 pins on a stock 3B)
 	 *   GPIO40-42 SPI2 MISO/MOSI/SCLK (audio_pins on a stock 3B+ -> dropped)
 	 *   GPIO43  BT GPCLK2
 	 *   GPIO44  SPI2 CS1
@@ -101,7 +108,7 @@
 			  "GPIO25",
 			  "GPIO26",
 			  "GPIO27",
-			  "HDMI_HPD_N",
+			  "FXL6408_IRQ_N",
 			  "CAN_IRQ_N",
 			  "SC16IS740_IRQ_N",
 			  "SPI2_CE0_N",
@@ -123,7 +130,7 @@
 			  "SCL0",
 			  "SMPS_SCL",
 			  "SMPS_SDA",
-			  "FXL6408_IRQ_N",
+			  "NC",
 			  "NC",
 			  "NC",
 			  "NC";
@@ -214,7 +221,7 @@
 /*
  * SmartEdge: eMMC replaces the microSD card. mmcnr is the non-removable
  * variant of the SD1 controller and still hosts the SDIO WiFi device -
- * same arrangement as a stock 3B+ (card + SDIO share the SD1 bus).
+ * same arrangement as a stock 3B (card + SDIO share the SD1 bus).
  */
 &mmcnr {
 	pinctrl-names = "default";
@@ -239,12 +246,12 @@
 		#gpio-cells = <2>;
 		gpio-line-names = "BT_ON",
 				  "WL_ON",
-				  "PWR_LED_R",
+				  "STATUS_LED",
 				  "LAN_RUN",
-				  "NC",
+				  "HDMI_HPD_N",
 				  "CAM_GPIO0",
 				  "CAM_GPIO1",
-				  "NC";
+				  "PWR_LOW_N";
 		status = "okay";
 	};
 };
@@ -436,19 +443,22 @@
 };
 
 /*
- * SmartEdge: the stock activity LED lives on GPIO29 here, which is the
- * MCP2515 interrupt. Front-panel LEDs are driven by the ATtiny instead.
+ * SmartEdge: the 3B+ activity LED (GPIO29) does not exist on this board -
+ * GPIO29 is the MCP2515 interrupt. Like the original Avnet DTS and the
+ * stock 3B, the activity LED sits on the firmware's virtual GPIO.
  */
 &led_act {
-	status = "disabled";
+	gpios = <&virtgpio 0 GPIO_ACTIVE_HIGH>;
+	default-state = "off";
+	linux,default-trigger = "mmc0";
 };
 
 &leds {
 	led_pwr: led-pwr {
 		label = "PWR";
-		gpios = <&expgpio 2 GPIO_ACTIVE_LOW>;
+		gpios = <&expgpio 7 GPIO_ACTIVE_HIGH>;
 		default-state = "off";
-		linux,default-trigger = "default-on";
+		linux,default-trigger = "input";
 	};
 };
 
@@ -459,10 +469,6 @@
 &vchiq {
 	/* no audio pins available - GPIO40/41 are SPI2 */
 	status = "okay";
-};
-
-&eth_phy {
-	microchip,downshift-after = <2>;
 };
 
 &cam1_reg {
@@ -486,13 +492,6 @@ i2c_csi_dsi0: &i2c0 {
 		pwr_led_gpio = <&led_pwr>,"gpios:4";
 		pwr_led_activelow = <&led_pwr>,"gpios:8";
 		pwr_led_trigger = <&led_pwr>,"linux,default-trigger";
-
-		eee = <&eth_phy>,"eee-broken-1000t!",
-		      <&eth_phy>,"eee-broken-100tx!";
-		eth_led0 = <&eth_phy>,"microchip,led-modes:0";
-		eth_led1 = <&eth_phy>,"microchip,led-modes:4";
-		eth_downshift_after = <&eth_phy>,"microchip,downshift-after:0";
-		eth_max_speed = <&eth_phy>,"max-speed:0";
 
 		/*
 		 * SmartEdge serial options (config.txt) - replicating the original
