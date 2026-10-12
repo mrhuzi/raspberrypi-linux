@@ -60,27 +60,19 @@ install -m 644 "$REPO_ROOT/boot-firmware/fixup.dat"    "$BOOT/fixup.dat"
 
 echo "== 5. boot partition: config.txt (board-proven) + cmdline.txt =="
 install -m 644 "$REPO_ROOT/image/config.txt" "$BOOT/config.txt"
-# cmdline: keep image PARTUUID root=, drop imager leftovers, add CN regdom,
-# add first-boot resize via raspi-config's init_resize.sh when available
+# cmdline: keep image PARTUUID root=, drop imager leftovers, add CN regdom.
+# Do NOT inject init=/usr/lib/raspi-config/init_resize.sh: that 2022-era script
+# does "mount /boot" + "findmnt /boot", but Trixie only has /boot/firmware in
+# fstab. mount /boot fails, the script then fails ("Could not expand
+# filesystem"), never removes init= from cmdline -> infinite first-boot reboot
+# loop with no sshd (seen on hardware 2026-10-12). The stock image expands via
+# the "resize" cmdline param handled inside initramfs8, which we deliberately
+# drop (wrong kernel modules) - so we pre-expand the rootfs at build time
+# (step 11) and remove the dead "resize" param here.
 cmd=$(tr '\n' ' ' < "$BOOT/cmdline.txt")
 cmd=$(echo "$cmd" | sed -E 's/ *ds=nocloud;[^ ]*//g')
+cmd=$(echo "$cmd" | sed -E 's/ resize( |$)/ /g; s/ +$//')
 cmd="$cmd cfg80211.ieee80211_regdom=CN"
-if [ -f "$ROOT/usr/lib/raspi-config/init_resize.sh" ]; then
-    echo "raspi-config init_resize.sh present -> using it for first-boot resize"
-    case "$cmd" in
-        *init=*) : ;;
-        *) cmd="$cmd init=/usr/lib/raspi-config/init_resize.sh" ;;
-    esac
-else
-    echo "init_resize.sh NOT present -> installing fallback firstboot-resize service"
-    install -m 755 "$REPO_ROOT/image/firstboot-resize.sh" \
-        "$ROOT/usr/local/sbin/firstboot-resize.sh"
-    install -m 644 "$REPO_ROOT/image/firstboot-resize.service" \
-        "$ROOT/etc/systemd/system/firstboot-resize.service"
-    mkdir -p "$ROOT/etc/systemd/system/multi-user.target.wants"
-    ln -sf /etc/systemd/system/firstboot-resize.service \
-        "$ROOT/etc/systemd/system/multi-user.target.wants/firstboot-resize.service"
-fi
 printf '%s\n' "$cmd" > "$BOOT/cmdline.txt"
 
 echo "== 6. enable SSH =="
@@ -134,7 +126,7 @@ fail() { echo "SANITY FAIL: $*"; exit 1; }
 [ -f "$BOOT/ssh" ] || fail ssh
 grep -q 'uart0=off' "$BOOT/config.txt" || fail "config uart0=off"
 grep -q 'regdom=CN' "$BOOT/cmdline.txt" || fail "cmdline regdom"
-grep -q 'init_resize' "$BOOT/cmdline.txt" || echo "NOTE: no init_resize in cmdline"
+if grep -q 'init=' "$BOOT/cmdline.txt"; then fail "cmdline must not contain init= (first-boot resize trap)"; fi
 echo "cmdline.txt: $(cat "$BOOT/cmdline.txt")"
 echo "avnet passwd: $(grep '^avnet:' "$ROOT/etc/passwd" || echo MISSING)"
 grep -q '^avnet:' "$ROOT/etc/passwd" || fail "passwd avnet"
@@ -150,12 +142,29 @@ grep -q '^avnet:\$6\$' "$ROOT/etc/shadow" || fail "shadow hash"
 echo "modules.dep size: $(stat -c%s "$ROOT/lib/modules/$KVER/modules.dep")"
 echo "ALL SANITY CHECKS PASSED"
 
-echo "== 11. detach + compress =="
-sync
-umount -R "$BOOT" "$ROOT"
-losetup -d "$LOOP"
+echo "== 11. pre-expand root partition + filesystem (replaces first-boot resize) =="
+# The SmartEdge eMMC is a fixed 16GB part (~14.6GiB). Pre-size the image to
+# 14.5GiB (30408704 sectors) - safely below the smallest real 16GB eMMC - and
+# grow partition 2 + ext4 to fill it, so the flashed system needs ZERO
+# first-boot resize logic (the classic source of unbootable images).
 trap - EXIT
+umount "$BOOT"
+umount "$ROOT"
+truncate -s 15569256448 base.img
+losetup -d "$LOOP"
+LOOP=$(losetup --find --show -P base.img)
+echo "loop: $LOOP (expanded)"
+e2fsck -fp "${LOOP}p2"
+parted -s "$LOOP" resizepart 2 100%
+partprobe "$LOOP" || partx -u "${LOOP}p2"
+resize2fs -f "${LOOP}p2"
+e2fsck -fp "${LOOP}p2"
+dumpe2fs -h "${LOOP}p2" 2>/dev/null | grep -E 'Block count|Block size' || true
+losetup -d "$LOOP"
+LOOP=""
+sync
 
+echo "== 12. compress =="
 OUT="smartedge-lite-arm64-$(date +%Y%m%d)-$KVER.img"
 mv base.img "$OUT"
 XZ_OPT="-T0 -6" xz -T0 -6 "$OUT"
