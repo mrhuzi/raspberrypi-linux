@@ -117,27 +117,42 @@ mkdir -p "$ROOT/etc/systemd/system/multi-user.target.wants"
 ln -sf /etc/systemd/system/firstboot-resize.service \
     "$ROOT/etc/systemd/system/multi-user.target.wants/firstboot-resize.service"
 
-echo "== 10. rootfs: user avnet (sudo) =="
+echo "== 10. rootfs: users (drop stock pi, create avnet as uid 1000) =="
+# The stock image ships user pi (uid 1000, nologin shell, locked password).
+# Leaving it in place collides with avnet on uid 1000: sudo resolves uid 1000
+# to the FIRST passwd entry (pi, locked) so password auth never succeeds, and
+# 'useradd -R' silently fails so /home/avnet is never created (hardware-
+# verified 2026-10-12). Remove pi completely, then create avnet cleanly.
+sed -i '/^pi:/d' "$ROOT/etc/passwd" "$ROOT/etc/shadow" "$ROOT/etc/group"
+rm -rf "$ROOT/home/pi" "$ROOT/var/spool/mail/pi"
+rm -f "$ROOT/etc/sudoers.d/010_pi-nopasswd"
 useradd -R "$ROOT" -u 1000 -m -d /home/avnet -s /bin/bash \
-    -c "Raspberry Pi OS" avnet 2>/dev/null || true
+    -c "SmartEdge default user" avnet
 if ! grep -q '^avnet:' "$ROOT/etc/passwd"; then
     # fallback: append entries manually
-    echo 'avnet:x:1000:1000:Raspberry Pi OS:/home/avnet:/bin/bash' >> "$ROOT/etc/passwd"
+    echo 'avnet:x:1000:1000:SmartEdge default user:/home/avnet:/bin/bash' >> "$ROOT/etc/passwd"
     grep -q '^avnet:' "$ROOT/etc/group" || echo 'avnet:x:1000:' >> "$ROOT/etc/group"
-    hash=$(openssl passwd -6 avnet)
-    echo "avnet:${hash}:2:0:99999:7:::" >> "$ROOT/etc/shadow"
+    mkdir -p "$ROOT/home/avnet"
+    cp -a "$ROOT/etc/skel/." "$ROOT/home/avnet/"
 fi
-echo 'avnet:avnet' | chpasswd -R "$ROOT" 2>/dev/null || true
+chown -R 1000:1000 "$ROOT/home/avnet" 2>/dev/null || true
 # chpasswd -R invokes the TARGET's PAM (arm64 modules, unloadable on x86 host)
 # so it always fails. Write the hash directly instead - host-side, no PAM.
 hash=$(openssl passwd -6 avnet)
 sed -i "s|^avnet:[^:]*:|avnet:${hash}:|" "$ROOT/etc/shadow"
 grep -q "^avnet:${hash}:" "$ROOT/etc/shadow" || { echo "shadow write failed"; exit 1; }
-if ! grep -q '^sudo:.*avnet' "$ROOT/etc/group"; then
-    awk -F: 'BEGIN{OFS=":"} $1=="sudo"{if($4=="")$4="avnet";else $4=$4",avnet"} {print}' \
-        "$ROOT/etc/group" > "$ROOT/etc/group.new"
-    mv "$ROOT/etc/group.new" "$ROOT/etc/group"
-fi
+# groups: sudo (admin), adm + systemd-journal (read full journal without root)
+for g in sudo adm systemd-journal; do
+    if ! grep -q "^${g}:.*avnet" "$ROOT/etc/group"; then
+        awk -F: -v g="$g" 'BEGIN{OFS=":"} $1==g{if($4=="")$4="avnet";else $4=$4",avnet"} {print}' \
+            "$ROOT/etc/group" > "$ROOT/etc/group.new"
+        mv "$ROOT/etc/group.new" "$ROOT/etc/group"
+    fi
+done
+# passwordless sudo for avnet (only real user on the board; makes remote
+# diagnostics actually possible - the pi/avnet uid collision taught us that)
+echo 'avnet ALL=(ALL) NOPASSWD: ALL' > "$ROOT/etc/sudoers.d/010_avnet-nopasswd"
+chmod 440 "$ROOT/etc/sudoers.d/010_avnet-nopasswd"
 
 echo "== 11. sanity checks =="
 fail() { echo "SANITY FAIL: $*"; exit 1; }
@@ -157,6 +172,12 @@ echo "sudo group: $(grep '^sudo:' "$ROOT/etc/group")"
 grep -q 'avnet' "$ROOT/etc/group" || fail "group avnet"
 echo "avnet shadow: $(grep -c '^avnet:\$6\$' "$ROOT/etc/shadow") entry"
 grep -q '^avnet:\$6\$' "$ROOT/etc/shadow" || fail "shadow hash"
+if grep -q '^pi:' "$ROOT/etc/passwd"; then fail "stock pi user still present (uid 1000 collision)"; fi
+[ -d "$ROOT/home/avnet" ] || fail "avnet home dir"
+[ -f "$ROOT/etc/sudoers.d/010_avnet-nopasswd" ] || fail "avnet sudoers"
+[ -x "$ROOT/usr/sbin/sfdisk" ] || fail "sfdisk present (resize dependency)"
+[ -x "$ROOT/usr/sbin/resize2fs" ] || fail "resize2fs present (resize dependency)"
+[ -x "$ROOT/usr/sbin/parted" ] || fail "parted present (resize fallback)"
 # NOTE: use -L (symlink exists) not -f: the link target is an absolute path
 # that only resolves on the TARGET filesystem, not on the build host.
 [ -L "$ROOT/etc/systemd/system/multi-user.target.wants/attiny-wdt-feed.service" ] || fail "wdt unit enable"
@@ -195,7 +216,41 @@ if [ -n "${PRE_EXPAND_GIB:-}" ]; then
     LOOP=""
     sync
 else
-    echo "== 13. pre-expand skipped: compact image, rootfs grows on first boot =="
+    echo "== 13. pre-expand skipped: compact image - run firstboot-resize selftest =="
+    # Reproduce the real first boot as closely as possible: attach the built
+    # image, MOUNT p2 (a mounted rootfs is exactly what made sfdisk abort
+    # without --force on hardware 2026-10-12), then run the actual unit
+    # script in test mode against the loop device.
+    command -v sfdisk >/dev/null 2>&1 || apt-get install -y fdisk
+    command -v parted >/dev/null 2>&1 || apt-get install -y parted
+    command -v resize2fs >/dev/null 2>&1 || apt-get install -y e2fsprogs
+    LOOP2=$(losetup --find --show -P base.img)
+    echo "selftest loop: $LOOP2"
+    mkdir -p /mnt/selftest-root
+    mount "${LOOP2}p2" /mnt/selftest-root
+    P2_BN=$(basename "${LOOP2}p2")
+    BEFORE=$(cat "/sys/class/block/$P2_BN/size")
+    RESIZE_TEST_DEVICE="${LOOP2}p2" RESIZE_TEST=1 \
+        bash "$REPO_ROOT/image/firstboot-resize.sh" || {
+            echo "SELFTEST FAIL: resize script error"; umount /mnt/selftest-root
+            losetup -d "$LOOP2"; exit 1; }
+    AFTER=$(cat "/sys/class/block/$P2_BN/size")
+    DISK2=$(cat "/sys/class/block/$(basename "$LOOP2")/size")
+    echo "selftest: part2 $BEFORE -> $AFTER sectors (disk $DISK2)"
+    [ "$AFTER" -gt "$BEFORE" ] || { echo "SELFTEST FAIL: partition did not grow"
+        umount /mnt/selftest-root; losetup -d "$LOOP2"; exit 1; }
+    FS_BLOCKS=$(dumpe2fs -h "${LOOP2}p2" 2>/dev/null | awk -F': *' '/^Block count/{print $2}')
+    FS_BS=$(dumpe2fs -h "${LOOP2}p2" 2>/dev/null | awk -F': *' '/^Block size/{print $2}')
+    echo "selftest: fs blocks=$FS_BLOCKS block_size=$FS_BS (part2 bytes=$((AFTER * 512)))"
+    [ -n "$FS_BLOCKS" ] && [ -n "$FS_BS" ] || { echo "SELFTEST FAIL: dumpe2fs"
+        umount /mnt/selftest-root; losetup -d "$LOOP2"; exit 1; }
+    EXPECT=$((AFTER * 512 / FS_BS))
+    [ "$((FS_BLOCKS * 100))" -ge "$((EXPECT * 99))" ] || {
+        echo "SELFTEST FAIL: filesystem did not grow ($FS_BLOCKS / $EXPECT blocks)"
+        umount /mnt/selftest-root; losetup -d "$LOOP2"; exit 1; }
+    umount /mnt/selftest-root
+    losetup -d "$LOOP2"
+    echo "SELFTEST PASS: partition + filesystem grew to fill the image"
 fi
 
 echo "== 14. compress =="
