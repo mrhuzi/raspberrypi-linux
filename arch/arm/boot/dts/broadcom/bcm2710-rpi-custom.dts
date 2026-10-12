@@ -254,6 +254,17 @@
 				  "PWR_LOW_N";
 		status = "okay";
 	};
+
+	/*
+	 * SmartEdge: the firmware virtual GPIO drives the activity LED
+	 * (same arrangement as the stock 3B and the original Avnet DTS).
+	 */
+	virtgpio: virtgpio {
+		compatible = "brcm,bcm2835-virtgpio";
+		gpio-controller;
+		#gpio-cells = <2>;
+		status = "okay";
+	};
 };
 
 /*
