@@ -53,7 +53,12 @@ dtoverlay=nospi10
 
 [all]
 device_tree=bcm2710-rpi-custom.dtb
-# arm_freq=900
+# CPU frequency ceiling for this board (Avnet GPU firmware + custom revision):
+# - commented out / no arm_freq  -> firmware default 1200MHz (board-proven:
+#   4-core full load ~52C, throttled=0x0)
+# - arm_freq=1400 TESTED 2026-10-12: firmware fails to apply it, board dies
+#   before Linux (HDMI black, no sshd, POR loop via ATtiny WDT). DO NOT use.
+arm_freq=1200
 enable_uart=1
 dtparam=uart0=off
 
