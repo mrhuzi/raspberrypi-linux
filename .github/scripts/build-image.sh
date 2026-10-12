@@ -8,12 +8,21 @@
 #   ARTDIR  - directory with the unpacked kernel build artifact
 #             (kernel8.img, bcm2710-rpi-custom.dtb, overlays/, modules.tar.gz)
 #   WORKDIR - scratch directory (runner temp)
+#   PRE_EXPAND_GIB - optional. When set (integer), the image is pre-expanded
+#             to this many GiB at build time (e.g. 14 for a 16GB eMMC board).
+#             Default: unset -> compact image (~2.9GB) that grows to fill
+#             whatever eMMC it is flashed to via firstboot-resize.service
+#             (online grow, no init=, no initramfs, no reboot).
 #
 # Must run as root on an Ubuntu Actions runner (needs loop devices).
 set -euo pipefail
 
 : "${ARTDIR:?ARTDIR not set}"
 : "${WORKDIR:?WORKDIR not set}"
+case "${PRE_EXPAND_GIB:-}" in
+    '') ;;
+    *[!0-9]*) echo "PRE_EXPAND_GIB must be an integer number of GiB"; exit 1 ;;
+esac
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 
@@ -67,8 +76,10 @@ install -m 644 "$REPO_ROOT/image/config.txt" "$BOOT/config.txt"
 # filesystem"), never removes init= from cmdline -> infinite first-boot reboot
 # loop with no sshd (seen on hardware 2026-10-12). The stock image expands via
 # the "resize" cmdline param handled inside initramfs8, which we deliberately
-# drop (wrong kernel modules) - so we pre-expand the rootfs at build time
-# (step 11) and remove the dead "resize" param here.
+# drop (wrong kernel modules) - instead the rootfs grows on first boot via
+# firstboot-resize.service (step 9: online grow, no init=, no reboot), so one
+# compact image fits ANY eMMC size. Optional build-time pre-expansion for a
+# known board size: PRE_EXPAND_GIB (step 13).
 cmd=$(tr '\n' ' ' < "$BOOT/cmdline.txt")
 cmd=$(echo "$cmd" | sed -E 's/ *ds=nocloud;[^ ]*//g')
 cmd=$(echo "$cmd" | sed -E 's/ resize( |$)/ /g; s/ +$//')
@@ -94,7 +105,19 @@ mkdir -p "$ROOT/etc/systemd/system/multi-user.target.wants"
 ln -sf /etc/systemd/system/attiny-wdt-feed.service \
     "$ROOT/etc/systemd/system/multi-user.target.wants/attiny-wdt-feed.service"
 
-echo "== 9. rootfs: user avnet (sudo) =="
+echo "== 9. rootfs: first-boot rootfs resize (universal eMMC size) =="
+# The image ships compact; firstboot-resize.service grows partition 2 + ext4
+# online to fill whatever eMMC (8/16/32GB...) it was flashed to. No init=,
+# no initramfs, no reboot; on failure it just retries on the next boot.
+install -m 755 "$REPO_ROOT/image/firstboot-resize.sh" \
+    "$ROOT/usr/local/sbin/firstboot-resize.sh"
+install -m 644 "$REPO_ROOT/image/firstboot-resize.service" \
+    "$ROOT/etc/systemd/system/firstboot-resize.service"
+mkdir -p "$ROOT/etc/systemd/system/multi-user.target.wants"
+ln -sf /etc/systemd/system/firstboot-resize.service \
+    "$ROOT/etc/systemd/system/multi-user.target.wants/firstboot-resize.service"
+
+echo "== 10. rootfs: user avnet (sudo) =="
 useradd -R "$ROOT" -u 1000 -m -d /home/avnet -s /bin/bash \
     -c "Raspberry Pi OS" avnet 2>/dev/null || true
 if ! grep -q '^avnet:' "$ROOT/etc/passwd"; then
@@ -116,7 +139,7 @@ if ! grep -q '^sudo:.*avnet' "$ROOT/etc/group"; then
     mv "$ROOT/etc/group.new" "$ROOT/etc/group"
 fi
 
-echo "== 10. sanity checks =="
+echo "== 11. sanity checks =="
 fail() { echo "SANITY FAIL: $*"; exit 1; }
 [ -f "$BOOT/kernel8.img" ] || fail kernel8.img
 [ -f "$BOOT/bcm2710-rpi-custom.dtb" ] || fail dtb
@@ -138,33 +161,44 @@ grep -q '^avnet:\$6\$' "$ROOT/etc/shadow" || fail "shadow hash"
 # that only resolves on the TARGET filesystem, not on the build host.
 [ -L "$ROOT/etc/systemd/system/multi-user.target.wants/attiny-wdt-feed.service" ] || fail "wdt unit enable"
 [ -f "$ROOT/etc/systemd/system/attiny-wdt-feed.service" ] || fail "wdt unit file"
+[ -f "$ROOT/usr/local/sbin/firstboot-resize.sh" ] || fail "firstboot-resize.sh"
+[ -f "$ROOT/etc/systemd/system/firstboot-resize.service" ] || fail "firstboot-resize unit"
+[ -L "$ROOT/etc/systemd/system/multi-user.target.wants/firstboot-resize.service" ] || fail "resize unit enable"
 [ -s "$ROOT/lib/modules/$KVER/modules.dep" ] || fail "modules.dep ($(stat -c%s "$ROOT/lib/modules/$KVER/modules.dep" 2>/dev/null || echo missing))"
 echo "modules.dep size: $(stat -c%s "$ROOT/lib/modules/$KVER/modules.dep")"
 echo "ALL SANITY CHECKS PASSED"
 
-echo "== 11. pre-expand root partition + filesystem (replaces first-boot resize) =="
-# The SmartEdge eMMC is a fixed 16GB part (~14.6GiB). Pre-size the image to
-# 14.5GiB (30408704 sectors) - safely below the smallest real 16GB eMMC - and
-# grow partition 2 + ext4 to fill it, so the flashed system needs ZERO
-# first-boot resize logic (the classic source of unbootable images).
+echo "== 12. detach image =="
 trap - EXIT
 umount "$BOOT"
 umount "$ROOT"
-truncate -s 15569256448 base.img
-losetup -d "$LOOP"
-LOOP=$(losetup --find --show -P base.img)
-echo "loop: $LOOP (expanded)"
-e2fsck -fp "${LOOP}p2"
-parted -s "$LOOP" resizepart 2 100%
-partprobe "$LOOP" || partx -u "${LOOP}p2"
-resize2fs -f "${LOOP}p2"
-e2fsck -fp "${LOOP}p2"
-dumpe2fs -h "${LOOP}p2" 2>/dev/null | grep -E 'Block count|Block size' || true
 losetup -d "$LOOP"
 LOOP=""
 sync
 
-echo "== 12. compress =="
+if [ -n "${PRE_EXPAND_GIB:-}" ]; then
+    echo "== 13. optional pre-expand to ${PRE_EXPAND_GIB}GiB =="
+    # For a known board size (e.g. PRE_EXPAND_GIB=14 for the 16GB eMMC) the
+    # image can be pre-sized so even firstboot-resize has nothing to do.
+    # Must stay BELOW the smallest real eMMC that will receive this image -
+    # a bigger image simply cannot be flashed to a smaller disk.
+    truncate -s $((PRE_EXPAND_GIB * 1024 * 1024 * 1024)) base.img
+    LOOP=$(losetup --find --show -P base.img)
+    echo "loop: $LOOP (expanded)"
+    e2fsck -fp "${LOOP}p2"
+    parted -s "$LOOP" resizepart 2 100%
+    partprobe "$LOOP" || partx -u "${LOOP}p2"
+    resize2fs -f "${LOOP}p2"
+    e2fsck -fp "${LOOP}p2"
+    dumpe2fs -h "${LOOP}p2" 2>/dev/null | grep -E 'Block count|Block size' || true
+    losetup -d "$LOOP"
+    LOOP=""
+    sync
+else
+    echo "== 13. pre-expand skipped: compact image, rootfs grows on first boot =="
+fi
+
+echo "== 14. compress =="
 OUT="smartedge-lite-arm64-$(date +%Y%m%d)-$KVER.img"
 mv base.img "$OUT"
 XZ_OPT="-T0 -6" xz -T0 -6 "$OUT"
