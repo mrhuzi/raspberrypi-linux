@@ -1,8 +1,16 @@
-name: SmartEdge Lite image
+name: SmartEdge image (lite / desktop)
 
 on:
   workflow_dispatch:
     inputs:
+      image_variant:
+        description: "OS image flavor to build from"
+        required: false
+        default: "lite"
+        type: choice
+        options:
+          - lite
+          - desktop
       pre_expand_gib:
         description: "Optional: pre-expand image to N GiB at build time (empty = compact image + first-boot auto-resize, fits any eMMC)"
         required: false
@@ -46,15 +54,16 @@ jobs:
           sudo -E env \
             ARTDIR="$GITHUB_WORKSPACE/artifact" \
             WORKDIR="$RUNNER_TEMP" \
+            IMAGE_VARIANT="${{ github.event.inputs.image_variant || 'lite' }}" \
             PRE_EXPAND_GIB="${{ github.event.inputs.pre_expand_gib || '' }}" \
             bash "$GITHUB_WORKSPACE/.github/scripts/build-image.sh"
 
       - name: Upload image artifact
         uses: actions/upload-artifact@v4
         with:
-          name: smartedge-lite-image
+          name: smartedge-image
           path: |
-            ${{ runner.temp }}/smartedge-lite-*.img.xz
-            ${{ runner.temp }}/smartedge-lite-*.img.xz.sha256
+            ${{ runner.temp }}/smartedge-*.img.xz
+            ${{ runner.temp }}/smartedge-*.img.xz.sha256
           retention-days: 90
           compression-level: 0
