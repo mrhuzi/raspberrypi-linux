@@ -124,6 +124,8 @@ echo "== 10. rootfs: users (drop stock pi, create avnet as uid 1000) =="
 # 'useradd -R' silently fails so /home/avnet is never created (hardware-
 # verified 2026-10-12). Remove pi completely, then create avnet cleanly.
 sed -i '/^pi:/d' "$ROOT/etc/passwd" "$ROOT/etc/shadow" "$ROOT/etc/group"
+# drop leftover "pi" memberships from group member lists (sudo:x:27:pi,avnet)
+sed -i -E 's/(^|,)pi(,|$)/\1/g' "$ROOT/etc/group"
 rm -rf "$ROOT/home/pi" "$ROOT/var/spool/mail/pi"
 rm -f "$ROOT/etc/sudoers.d/010_pi-nopasswd"
 useradd -R "$ROOT" -u 1000 -m -d /home/avnet -s /bin/bash \
@@ -216,15 +218,18 @@ if [ -n "${PRE_EXPAND_GIB:-}" ]; then
     LOOP=""
     sync
 else
-    echo "== 13. pre-expand skipped: compact image - run firstboot-resize selftest =="
-    # Reproduce the real first boot as closely as possible: attach the built
-    # image, MOUNT p2 (a mounted rootfs is exactly what made sfdisk abort
-    # without --force on hardware 2026-10-12), then run the actual unit
-    # script in test mode against the loop device.
+    echo "== 13. compact image - run firstboot-resize selftest =="
+    # Reproduce the real first boot: the base image's p2 already ends at the
+    # last sector of the compact image, so first make a BIGGER disk - copy
+    # the image, truncate the copy to 8GiB, attach, mount p2 (a mounted
+    # rootfs is exactly what made sfdisk abort without --force on hardware
+    # 2026-10-12) and run the actual unit script in test mode against it.
     command -v sfdisk >/dev/null 2>&1 || apt-get install -y fdisk
     command -v parted >/dev/null 2>&1 || apt-get install -y parted
     command -v resize2fs >/dev/null 2>&1 || apt-get install -y e2fsprogs
-    LOOP2=$(losetup --find --show -P base.img)
+    cp base.img selftest.img
+    truncate -s 8G selftest.img
+    LOOP2=$(losetup --find --show -P selftest.img)
     echo "selftest loop: $LOOP2"
     mkdir -p /mnt/selftest-root
     mount "${LOOP2}p2" /mnt/selftest-root
@@ -250,7 +255,8 @@ else
         umount /mnt/selftest-root; losetup -d "$LOOP2"; exit 1; }
     umount /mnt/selftest-root
     losetup -d "$LOOP2"
-    echo "SELFTEST PASS: partition + filesystem grew to fill the image"
+    rm -f selftest.img
+    echo "SELFTEST PASS: partition + filesystem grew to fill the enlarged disk"
 fi
 
 echo "== 14. compress =="
