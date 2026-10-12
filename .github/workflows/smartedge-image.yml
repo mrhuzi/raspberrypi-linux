@@ -2,6 +2,11 @@ name: SmartEdge Lite image
 
 on:
   workflow_dispatch:
+    inputs:
+      pre_expand_gib:
+        description: "Optional: pre-expand image to N GiB at build time (empty = compact image + first-boot auto-resize, fits any eMMC)"
+        required: false
+        default: ""
   push:
     branches: [smartedge-rpi-6.18.y]
     paths:
@@ -41,6 +46,7 @@ jobs:
           sudo -E env \
             ARTDIR="$GITHUB_WORKSPACE/artifact" \
             WORKDIR="$RUNNER_TEMP" \
+            PRE_EXPAND_GIB="${{ github.event.inputs.pre_expand_gib || '' }}" \
             bash "$GITHUB_WORKSPACE/.github/scripts/build-image.sh"
 
       - name: Upload image artifact
