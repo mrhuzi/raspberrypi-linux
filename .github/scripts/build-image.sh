@@ -114,6 +114,32 @@ echo "kernel version: $KVER"
 find "$ROOT/lib/modules" -mindepth 1 -maxdepth 1 -type d ! -name "$KVER" -exec rm -rf {} +
 depmod -b "$ROOT" "$KVER"
 
+echo "== 7b. rootfs: scrub stock kernel packages from the dpkg database =="
+# The stock image keeps linux-image-*/linux-headers-* registered as installed,
+# but we just deleted their /lib/modules (and they are useless on a custom-
+# kernel board). If left registered, ANY later upgrade of initramfs-tools (or
+# apt upgrade pulling a new stock kernel) runs update-initramfs against the
+# missing module dirs and dpkg fails in a half-configured state; worse, the
+# kernel package postrm (z50-raspi-firmware) would DELETE our kernel8.img on
+# purge. No arm64 chroot available on the x86 runner, so do dpkg status-file
+# surgery instead: drop the stanzas + dpkg info files of those packages.
+awk -v RS='' -v ORS='\n\n' '
+    /^Package: / {
+        p = $0; sub(/^Package: /, "", p); sub(/\n.*/, "", p)
+        # keep the unversioned linux-base (initramfs-tools depends on it);
+        # only drop versioned kernel image/headers/support packages
+        if (p ~ /^linux-(image|headers)/ || p ~ /^linux-base-/ || p ~ /^linux-kbuild-/) next
+    }
+    { print }
+' "$ROOT/var/lib/dpkg/status" > "$ROOT/var/lib/dpkg/status.new"
+[ -s "$ROOT/var/lib/dpkg/status.new" ] || fail "dpkg status surgery produced an empty file"
+mv "$ROOT/var/lib/dpkg/status.new" "$ROOT/var/lib/dpkg/status"
+rm -f "$ROOT"/var/lib/dpkg/info/linux-image* "$ROOT"/var/lib/dpkg/info/linux-headers* \
+      "$ROOT"/var/lib/dpkg/info/linux-base-* "$ROOT"/var/lib/dpkg/info/linux-kbuild-* 2>/dev/null
+grep -q '^Package: linux-image' "$ROOT/var/lib/dpkg/status" \
+    && fail "stock linux-image packages still registered in dpkg db" || true
+echo "stock kernel packages scrubbed from dpkg db"
+
 echo "== 8. rootfs: ATtiny watchdog feeder =="
 install -m 755 "$REPO_ROOT/image/attiny-wdt-feed.sh" "$ROOT/usr/local/bin/attiny-wdt-feed.sh"
 install -m 644 "$REPO_ROOT/image/attiny-wdt-feed.service" "$ROOT/etc/systemd/system/attiny-wdt-feed.service"
