@@ -140,6 +140,17 @@ grep -q '^Package: linux-image' "$ROOT/var/lib/dpkg/status" \
     && fail "stock linux-image packages still registered in dpkg db" || true
 echo "stock kernel packages scrubbed from dpkg db"
 
+# 7c: drop the legacy udev compat rule that steals /dev/gpiochip4.
+# raspberrypi-sys-mods ships 60-gpiochip4.rules which symlinks /dev/gpiochip4
+# -> gpiochip0 at chip0-registration time (before the I2C FXL6408 probes).
+# With the 3B base DT there are 5 gpiochips and the real chip4 (1-0044, the
+# isolated DIO output group carrying the TPM_RESET_N hog) then never gets a
+# devtmpfs node, making it invisible to libgpiod. Remove the rule.
+if [ -f "$ROOT/usr/lib/udev/rules.d/60-gpiochip4.rules" ]; then
+    rm -f "$ROOT/usr/lib/udev/rules.d/60-gpiochip4.rules"
+    echo "removed legacy 60-gpiochip4.rules (gpiochip4 node hijack)"
+fi
+
 echo "== 8. rootfs: ATtiny watchdog feeder =="
 install -m 755 "$REPO_ROOT/image/attiny-wdt-feed.sh" "$ROOT/usr/local/bin/attiny-wdt-feed.sh"
 install -m 644 "$REPO_ROOT/image/attiny-wdt-feed.service" "$ROOT/etc/systemd/system/attiny-wdt-feed.service"
