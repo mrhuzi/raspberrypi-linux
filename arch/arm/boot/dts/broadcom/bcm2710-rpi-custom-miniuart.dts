@@ -1,0 +1,72 @@
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * Avnet SmartEdge Industrial IoT Gateway (AVTSE-RPI-IIOTG) -
+ * "Serial option 2" DTB variant.
+ *
+ * Replicates the original Avnet config.txt serial option 2
+ * (dtoverlay=pi3-miniuart-bt + core_freq=250):
+ *   - onboard Bluetooth on the mini-uart (uart1): 2-wire GPIO32/33
+ *     + 32.768kHz LPO clock on GPIO43 (GPCLK2), 921600 (proven rate)
+ *   - the PL011 (uart0) exposed on the GPIO header (GPIO14/15) as
+ *     /dev/ttyAMA0 (/dev/serial0) for HAT use
+ *
+ * 6.18 serdev nodes live under their UART parent and cannot be moved
+ * by a runtime overlay, so the original one-line overlay becomes this
+ * compiled variant. Select in config.txt with:
+ *     device_tree=bcm2710-rpi-custom-miniuart.dtb
+ * Keep enable_uart=1: it locks the core clock, which the mini-uart BT
+ * baud rate depends on (the original core_freq=250 duty).
+ *
+ * The firmware flips serial0/serial1 whenever uart0 is enabled; the
+ * base DTS pre-sets the post-flip state (serial0=&uart0, serial1=&uart1),
+ * so /dev/serial0 = PL011 on the header and /dev/serial1 = the BT
+ * mini-uart - exactly the original option 2 semantics.
+ *
+ * NOTE: to disable onboard BT entirely use the main DTB
+ * (bcm2710-rpi-custom.dtb) with dtparam=smartedge_bt=off (option 3).
+ */
+
+#include "bcm2710-rpi-custom.dts"
+
+&gpio {
+	/* SmartEdge: PL011 on the GPIO header (14/15) for HAT use */
+	uart0_hat_pins: uart0_hat_pins {
+		brcm,pins = <14 15>;
+		brcm,function = <4>; /* alt0 = PL011 */
+		brcm,pull = <0 2>;
+	};
+
+	/* SmartEdge: BT data pins on the mini-uart (2-wire, alt5) */
+	uart1_bt_pins: uart1_bt_pins {
+		brcm,pins = <32 33>;
+		brcm,function = <BCM2835_FSEL_ALT5>; /* alt5=UART1 */
+		brcm,pull = <0 2>;
+	};
+};
+
+/* SmartEdge: PL011 freed for the header (GPIO14/15, /dev/ttyAMA0) */
+&uart0 {
+	pinctrl-0 = <&uart0_hat_pins>;
+};
+
+/* SmartEdge: mini-uart carries the onboard BT (replaces console duty) */
+&uart1 {
+	pinctrl-0 = <&uart1_bt_pins &bt_pins>;
+};
+
+&bt {
+	status = "disabled";
+};
+
+&minibt {
+	status = "okay";
+	/* 921600: proven on this board's 2-wire BT link (2026-10-09..14);
+	 * upstream default 230400 would also work but wastes headroom. */
+	max-speed = <921600>;
+};
+
+/ {
+	aliases {
+		bluetooth = &minibt;
+	};
+};
