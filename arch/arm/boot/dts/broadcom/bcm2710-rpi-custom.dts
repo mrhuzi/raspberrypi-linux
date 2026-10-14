@@ -39,10 +39,16 @@
 	model = "Avnet SmartEdge Industrial IoT Gateway";
 
 	aliases {
-		serial0 = &uart1;
-		serial1 = &uart0;
+		/*
+		 * SmartEdge: BT lives on the PL011 (uart0). The GPU firmware
+		 * flips serial0/serial1 whenever uart0 is enabled (verified
+		 * 2026-10-14), so the aliases are pre-set to the post-flip
+		 * state - the firmware rewrite then becomes a no-op.
+		 */
+		serial0 = &uart0;
+		serial1 = &uart1;
 		mmc1 = &mmcnr;
-		bluetooth = &minibt;
+		bluetooth = &bt;
 	};
 
 	/* SmartEdge: external oscillators for UART bridge and CAN controller */
@@ -190,20 +196,35 @@
 		brcm,pull = <0 2>;
 	};
 
+	/*
+	 * SmartEdge: PL011 pins for the onboard BT, 2-wire (no flow control).
+	 * The node is deliberately NOT named "uart0_pins": whenever uart0 is
+	 * enabled, the official GPU firmware rewrites the node of that exact
+	 * name to the standard Pi3 BT quad (GPIO30-33) - which would trample
+	 * GPIO30 (SC16IS740 IRQ) and GPIO31 (SPI2 CE0). Verified 2026-10-14:
+	 * the rewrite targets the node NAME only (values 32/33 -> 30-33) and
+	 * leaves every other pinctrl node untouched.
+	 */
+	bt_pl011_pins: bt_pl011_pins {
+		brcm,pins = <32 33>;
+		brcm,function = <7>; /* alt3=UART0 */
+		brcm,pull = <0 2>;
+	};
+
+	/*
+	 * SmartEdge: the mini-uart keeps its stock debug/console pins (14/15)
+	 * as a plain /dev/ttyS0 after BT moved to the PL011.
+	 */
+	uart1_console_pins: uart1_console_pins {
+		brcm,pins = <14 15>;
+		brcm,function = <BCM2835_FSEL_ALT5>; /* alt5=UART1 */
+		brcm,pull = <0 2>;
+	};
+
 	uart1_pins: uart1_pins {
 		brcm,pins;
 		brcm,function;
 		brcm,pull;
-	};
-
-	uart1_bt_pins: uart1_bt_pins {
-		/*
-		 * SmartEdge: 2-wire only. GPIO30/31 are SC16IS740 IRQ and
-		 * SPI2 CE0 on this board - they must never be muxed to UART.
-		 */
-		brcm,pins = <32 33>;
-		brcm,function = <BCM2835_FSEL_ALT5>; /* alt5=UART1 */
-		brcm,pull = <0 2>;
 	};
 
 	/* SmartEdge: interrupt inputs from SPI2 peripherals and DIO expander */
@@ -268,28 +289,31 @@
 };
 
 /*
- * SmartEdge: PL011 (uart0) is disabled. Whenever uart0 is enabled, the
- * official GPU firmware performs standard Pi3B+ Bluetooth bring-up on it
- * (pins 30-33), which tramples GPIO30 (SC16IS740 IRQ) and GPIO31 (SPI2 CE0).
- * With uart0 off the firmware skips BT bring-up entirely (verified 2026-10-09),
- * while the 32.768kHz LPO clock on GPIO43 keeps running: the dt-blob declares
- * pin_define@WL_LPO_CLK (internal, 43), which the firmware services on every
- * boot regardless of uart0 state.
+ * SmartEdge: the PL011 (uart0) carries the onboard Bluetooth, 2-wire on
+ * GPIO32/33 (TXD0/RXD0, alt3) plus the 32.768kHz LPO clock on GPIO43
+ * (GPCLK2, muxed via bt_pins). Verified 2026-10-14 on the running board:
+ * when uart0 is enabled the GPU firmware only (a) rewrites the values of
+ * the pinctrl node literally named "uart0_pins" (escaped by using a
+ * different node name here) and (b) flips the serial0/serial1 aliases
+ * (pre-applied in the aliases above); it attaches no pinctrl of its own,
+ * so GPIO30/31 (SC16IS740 IRQ, SPI2 CE0) are never touched.
  */
 &uart0 {
-	status = "disabled";
+	pinctrl-names = "default";
+	pinctrl-0 = <&bt_pl011_pins &bt_pins>;
+	status = "okay";
 };
 
-/* SmartEdge: onboard Bluetooth on the mini-uart (2-wire) + GPIO43 LPO clock */
+/* SmartEdge: mini-uart stays up as the plain /dev/ttyS0 (console, 14/15) */
 &uart1 {
 	pinctrl-names = "default";
-	pinctrl-0 = <&uart1_bt_pins &bt_pins>;
+	pinctrl-0 = <&uart1_console_pins>;
 	status = "okay";
 };
 
+/* SmartEdge: minibt (mini-uart BT) retired - BT now on the PL011 */
 &minibt {
-	status = "okay";
-	max-speed = <921600>;
+	status = "disabled";
 };
 
 &spi0 {
@@ -505,25 +529,25 @@ i2c_csi_dsi0: &i2c0 {
 		pwr_led_trigger = <&led_pwr>,"linux,default-trigger";
 
 		/*
-		 * SmartEdge serial options (config.txt) - replicating the original
-		 * Avnet four-option block as far as this board + official firmware
-		 * physically allow:
+		 * SmartEdge serial options (config.txt) - replicating the
+		 * original Avnet four-option block as far as this board +
+		 * official firmware physically allow:
 		 *
-		 *   default            onboard BT on the mini-uart (the original
-		 *                      "option 2" BT arrangement, done in DT because
-		 *                      6.18 serdev cannot be moved by overlays)
+		 *   default            onboard BT on the PL011/uart0 (GPIO32/33,
+		 *                      the original "option 1" arrangement done in
+		 *                      DT because 6.18 serdev cannot be moved by
+		 *                      overlays; the firmware's uart0_pins rewrite
+		 *                      is escaped by the renamed bt_pl011_pins)
 		 *
-		 *   smartedge_bt=off   disable onboard BT (original "option 3");
-		 *                      uart1 stays up as a plain /dev/ttyS0
+		 *   smartedge_bt=off   disable onboard BT entirely (original
+		 *                      "option 3"); uart0 stays up as a plain
+		 *                      /dev/ttyAMA0 on GPIO32/33
 		 *
-		 * Original options 0/1 (BT on ttyAMA0/PL011) are NOT reproducible:
-		 * whenever uart0 is enabled the official GPU firmware rewrites its
-		 * pin group to the standard Pi3 BT quad (GPIO30-33), trampling the
-		 * SC16IS740 IRQ and SPI2 CE0 wired there on this board.
+		 *   krnbt=off          same as smartedge_bt=off (upstream override)
 		 *
 		 * BT baud rate is adjustable with the upstream krnbt_baudrate
 		 * override (e.g. dtparam=krnbt_baudrate=115200).
 		 */
-		smartedge_bt = <&minibt>,"status";
+		smartedge_bt = <&bt>,"status";
 	};
 };
