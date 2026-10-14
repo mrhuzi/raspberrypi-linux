@@ -93,11 +93,31 @@ jobs:
             echo "ok: $node"
           done
 
+      - name: Check SmartEdge BT-on-PL011 variant device tree
+        run: |
+          set -e
+          DTB=arch/arm64/boot/dts/broadcom/bcm2710-rpi-custom-btpl011.dtb
+          test -f "$DTB" || { echo "::error::$DTB was not built - check Makefile entry"; exit 1; }
+          ls -l "$DTB"
+          dtc -I dtb -O dts "$DTB" -o btpl011.dts
+          for node in bt_pl011_pins uart1_hat_pins; do
+            grep -q "$node" btpl011.dts || { echo "::error::missing node: $node"; exit 1; }
+            echo "ok: $node"
+          done
+          # option 0/1 alias semantics: serial0 = uart1 (HAT mini-uart),
+          # serial1 = uart0 (PL011 BT), bluetooth = uart0's bt serdev
+          test "$(fdtget "$DTB" /aliases serial0)" = "$(fdtget "$DTB" /soc/serial@7e215040 phandle)"
+          test "$(fdtget "$DTB" /aliases serial1)" = "$(fdtget "$DTB" /soc/serial@7e201000 phandle)"
+          test "$(fdtget "$DTB" /aliases bluetooth)" = "$(fdtget "$DTB" /soc/serial@7e201000/bluetooth phandle)"
+          echo "ok: aliases (serial0=uart1, serial1=uart0, bluetooth=bt@uart0)"
+
       - name: Upload device trees
         uses: actions/upload-artifact@v4
         with:
           name: smartedge-dtbs
-          path: arch/arm64/boot/dts/broadcom/bcm2710-rpi-custom.dtb
+          path: |
+            arch/arm64/boot/dts/broadcom/bcm2710-rpi-custom.dtb
+            arch/arm64/boot/dts/broadcom/bcm2710-rpi-custom-btpl011.dtb
           retention-days: 7
 
   # ---------------------------------------------------------------
@@ -167,6 +187,9 @@ jobs:
           # SmartEdge 定制设备树（Phase 1 起应该存在）
           if [ -f arch/arm64/boot/dts/broadcom/bcm2710-rpi-custom.dtb ]; then
             cp arch/arm64/boot/dts/broadcom/bcm2710-rpi-custom.dtb out/
+          fi
+          if [ -f arch/arm64/boot/dts/broadcom/bcm2710-rpi-custom-btpl011.dtb ]; then
+            cp arch/arm64/boot/dts/broadcom/bcm2710-rpi-custom-btpl011.dtb out/
           fi
           cp arch/arm64/boot/dts/overlays/*.dtbo out/overlays/
           tar -C staging -czf out/modules.tar.gz lib/modules
