@@ -61,22 +61,47 @@ device_tree=bcm2710-rpi-custom.dtb
 arm_freq=1200
 
 #################################################################
-# Serial UART options for HAT and onboard Bluetooth (6.18 stack)
+# Serial UART options for HAT and onboard Bluetooth
 #
-# NOTE: A single DTB covers every case; only option 3 is a switch
+# The original Avnet (Linux 4.14) vendor block is kept verbatim
+# below for reference. On this 6.18 stack the four options map as
+# follows (single DTB, UART roles fused at compile time):
+#
+#   * Default state == vendor option 2 arrangement:
+#       /dev/serial0 = PL011 ttyAMA0 on the GPIO header (console)
+#       onboard BT   = mini-uart, presented as hci0 (no /dev/serial1
+#       node while the serdev BT owns the port)
+#   * Vendor options 0/1 (BT on ttyAMA0, HAT on mini-uart) are NOT
+#     reproducible, and NOT because of GPIO30-33 vs SPI2 - that old
+#     conflict is solved: this DTB names its pin groups away from
+#     "uart0_pins", so the firmware rewrite of that node is inert
+#     (GPIO30/31 = SC16 IRQ / SPI2 CE0 are never touched; BT on the
+#     PL011 was even board-verified). The real blocker: whenever
+#     uart0 is enabled the official firmware force-flips the serial
+#     aliases so /dev/serial0 = PL011. With BT occupying the PL011,
+#     /dev/serial0 would point at the BT port and the HAT would be
+#     demoted to serial1 - inverting the vendor semantics
+#     (serial0 = HAT on the header).
+#   * Vendor option 3 == dtparam=smartedge_bt=off (the only switch).
+#
+# NOTE: Only one of these options should be enabled at one time
 #################################################################
+### Serial option 0: Onboard Bluetooth using ttyAMA0
+# (this is default if no other option selected)
+### Serial option 1: Enable ttyS0 (mini-uart) for HAT (/dev/serial0), onboard Bluetooth is using ttyAMA0
+#enable_uart=1
+### Serial option 2: Bluetooth (/dev/serial1) to use ttyS0 (mini-uart), HAT (/dev/serial0) to use ttyAMA0
+#dtoverlay=pi3-miniuart-bt
+#core_freq=250
+### Serial option 3: Disable onboard bluetooth, ttyAMA0 enabled for HAT usage (/dev/serial0)
+#dtoverlay=pi3-disable-bt
 
-### Serial option 0/1/2 (all default): /dev/serial0 = PL011 on the
-### GPIO header (ttyAMA0, console), onboard Bluetooth = hci0 on the
-### mini-uart (/dev/serial1) @921600
-# (compiled into the DTB - no lines needed for the UART roles;
-#  enable_uart=1 below locks the core clock the mini-uart BT
-#  baud rate depends on)
+# --- 6.18 stack: active lines (do NOT enable the vendor overlay lines above) ---
+# enable_uart=1 does NOT select option 1 here; it only locks the core
+# clock at 250 MHz, which the mini-uart BT baud rate depends on.
 enable_uart=1
-
-### Serial option 3: Disable onboard bluetooth - the mini-uart then
-### shows up as a plain /dev/ttyS0 (GPIO32/33); serial0 stays on the PL011
-#dtparam=smartedge_bt=off
-
-### BT baud rate (921600 = proven 2-wire rate; 3M intermittently times out)
+# BT baud rate (921600 = proven 2-wire rate; 3M intermittently times out)
 dtparam=krnbt_baudrate=921600
+# Uncomment for vendor option 3 (BT off; the mini-uart then shows up as
+# a plain /dev/ttyS0 on GPIO32/33; /dev/serial0 stays on the PL011):
+#dtparam=smartedge_bt=off
