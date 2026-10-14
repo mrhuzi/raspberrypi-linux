@@ -60,28 +60,22 @@ device_tree=bcm2710-rpi-custom.dtb
 #   before Linux (HDMI black, no sshd, POR loop via ATtiny WDT). DO NOT use.
 arm_freq=1200
 
-
-
 #################################################################
 # Serial UART options for HAT and onboard Bluetooth (6.18 stack)
 #
-# NOTE: Only one of these options should be enabled at one time
-#       Options 0/1/3 use the main DTB; option 2 swaps the DTB
+# NOTE: A single DTB covers every case; only option 3 is a switch
 #################################################################
 
-### Serial option 0: Onboard Bluetooth using ttyAMA0 (PL011 @921600, 2-wire)
-# (this is default if no other option selected - compiled into the DTB)
-
-### Serial option 1: Enable ttyS0 (mini-uart) for HAT (/dev/serial1), onboard Bluetooth is using ttyAMA0
-# (ttyS0 on GPIO14/15 is always up with the custom DTB; enable_uart=1
-#  additionally locks the core clock - keep it enabled)
+### Serial option 0/1/2 (all default): /dev/serial0 = PL011 on the
+### GPIO header (ttyAMA0, console), onboard Bluetooth = hci0 on the
+### mini-uart (/dev/serial1) @921600
+# (compiled into the DTB - no lines needed for the UART roles;
+#  enable_uart=1 below locks the core clock the mini-uart BT
+#  baud rate depends on)
 enable_uart=1
 
-### Serial option 2: Bluetooth (/dev/serial1) to use ttyS0 (mini-uart), HAT (/dev/serial0) to use ttyAMA0
-# (6.18 serdev cannot be moved by an overlay - swap the DTB instead)
-device_tree=bcm2710-rpi-custom.dtb
-
-### Serial option 3: Disable onboard bluetooth, ttyAMA0 enabled for HAT usage (/dev/serial0)
+### Serial option 3: Disable onboard bluetooth - the mini-uart then
+### shows up as a plain /dev/ttyS0 (GPIO32/33); serial0 stays on the PL011
 #dtparam=smartedge_bt=off
 
 ### BT baud rate (921600 = proven 2-wire rate; 3M intermittently times out)
