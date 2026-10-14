@@ -3,7 +3,11 @@
 &uart0 {
 	bt: bluetooth {
 		compatible = "brcm,bcm43438-bt";
-		max-speed = <3000000>;
+		/* 921600: SmartEdge BT is wired 2-wire (no flow control); 3M is
+		 * marginal here - post-patch HCI commands intermittently time out
+		 * (Opcode 0x1002 failed: -110, 2026-10-14). 921600 is the proven
+		 * rate (same value the mini-uart arrangement used). */
+		max-speed = <921600>;
 		shutdown-gpios = <&expgpio 0 GPIO_ACTIVE_HIGH>;
 		local-bd-address = [ 00 00 00 00 00 00 ];
 		fallback-bd-address; // Don't override a valid address
