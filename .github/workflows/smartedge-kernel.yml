@@ -106,9 +106,13 @@ jobs:
           done
           # option 0/1 alias semantics: serial0 = uart1 (HAT mini-uart),
           # serial1 = uart0 (PL011 BT), bluetooth = uart0's bt serdev
-          test "$(fdtget "$DTB" /aliases serial0)" = "$(fdtget "$DTB" /soc/serial@7e215040 phandle)"
-          test "$(fdtget "$DTB" /aliases serial1)" = "$(fdtget "$DTB" /soc/serial@7e201000 phandle)"
-          test "$(fdtget "$DTB" /aliases bluetooth)" = "$(fdtget "$DTB" /soc/serial@7e201000/bluetooth phandle)"
+          a0=$(fdtget "$DTB" /aliases serial0); a1=$(fdtget "$DTB" /soc/serial@7e215040 phandle)
+          b0=$(fdtget "$DTB" /aliases serial1); b1=$(fdtget "$DTB" /soc/serial@7e201000 phandle)
+          c0=$(fdtget "$DTB" /aliases bluetooth); c1=$(fdtget "$DTB" /soc/serial@7e201000/bluetooth phandle)
+          echo "serial0: alias=$a0 uart1_ph=$a1 | serial1: alias=$b0 uart0_ph=$b1 | bt: alias=$c0 bt_ph=$c1"
+          test "$a0" = "$a1"
+          test "$b0" = "$b1"
+          test "$c0" = "$c1"
           echo "ok: aliases (serial0=uart1, serial1=uart0, bluetooth=bt@uart0)"
 
       - name: Upload device trees
