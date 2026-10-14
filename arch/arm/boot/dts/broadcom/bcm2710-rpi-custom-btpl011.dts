@@ -1,0 +1,85 @@
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * Avnet SmartEdge Industrial IoT Gateway (AVTSE-RPI-IIOTG) -
+ * "Serial option 0/1" DTB variant: onboard Bluetooth on the PL011.
+ *
+ * Replicates the original Avnet config.txt serial options 0 and 1
+ * (Onboard Bluetooth using ttyAMA0, HAT on the mini-uart ttyS0):
+ *   - onboard BT on the PL011 (uart0): 2-wire GPIO32/33 (alt3)
+ *     + 32.768kHz LPO clock on GPIO43 (GPCK2), 921600 (proven rate)
+ *   - the mini-uart (uart1) on the GPIO header (GPIO14/15) as
+ *     /dev/ttyS0 = /dev/serial0 for HAT use
+ *
+ * 6.18 serdev nodes live under their UART parent and cannot be moved
+ * by a runtime overlay, so the original option block becomes this
+ * compiled variant. Select in config.txt with:
+ *     device_tree=bcm2710-rpi-custom-btpl011.dtb   (replace main line)
+ *     core_freq=400
+ * with enable_uart=1 REMOVED: core_freq pins the core clock the
+ * mini-uart HAT baud rate depends on, and the PL011 BT runs from the
+ * dedicated 48MHz uart clock - enable_uart adds nothing here and is a
+ * suspect for the firmware serial-alias flip.
+ *
+ * The firmware rewrites the pinctrl node literally named "uart0_pins"
+ * to the standard Pi3 BT quad (GPIO30-33) whenever uart0 is enabled -
+ * verified with BOTH enable_uart=1 and core_freq-only locking
+ * (2026-10-14). Both pin groups here are named away from that
+ * (bt_pl011_pins / uart1_hat_pins), so GPIO30/31 (SC16IS740 IRQ,
+ * SPI2 CE0) stay untouched.
+ *
+ * NOTE: to disable onboard BT entirely use the main DTB with
+ * dtparam=smartedge_bt=off (option 3).
+ */
+
+#include "bcm2710-rpi-custom.dts"
+
+&gpio {
+	/* BT data pins on the PL011 (2-wire, alt3 = UART0 on 32/33) */
+	bt_pl011_pins: bt_pl011_pins {
+		brcm,pins = <32 33>;
+		brcm,function = <7>; /* alt3 = UART0 */
+		brcm,pull = <0 2>;
+	};
+
+	/* mini-uart on the GPIO header (14/15) for HAT use */
+	uart1_hat_pins: uart1_hat_pins {
+		brcm,pins = <14 15>;
+		brcm,function = <BCM2835_FSEL_ALT5>; /* alt5 = UART1 */
+		brcm,pull = <0 2>;
+	};
+};
+
+/* BT moves to the PL011 (original option 0/1 arrangement) */
+&uart0 {
+	pinctrl-0 = <&bt_pl011_pins &bt_pins>;
+};
+
+/* mini-uart freed for the GPIO header (/dev/ttyS0) */
+&uart1 {
+	pinctrl-0 = <&uart1_hat_pins>;
+};
+
+&bt {
+	status = "okay";
+};
+
+&minibt {
+	status = "disabled";
+};
+
+/ {
+	aliases {
+		/delete-property/ serial0;
+		/delete-property/ serial1;
+		/delete-property/ bluetooth;
+		/* original option 0/1 semantics: serial0 = HAT mini-uart */
+		serial0 = &uart1;
+		serial1 = &uart0;
+		bluetooth = &bt;
+	};
+
+	__overrides__ {
+		/delete-property/ smartedge_bt;
+		smartedge_bt = <&bt>,"status";
+	};
+};
