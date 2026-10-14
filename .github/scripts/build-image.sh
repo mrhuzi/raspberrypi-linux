@@ -221,10 +221,14 @@ fail() { echo "SANITY FAIL: $*"; exit 1; }
 # header (/dev/serial0), BT on the mini-uart @921600, option 3 =
 # smartedge_bt=off. The old "uart0=off" guard is obsolete and must NOT
 # be present.
-if grep -q 'uart0=off' "$BOOT/config.txt"; then fail "config must not contain uart0=off (obsolete, see DTS b17faa0e)"; fi
-grep -q 'dtparam=krnbt_baudrate=921600' "$BOOT/config.txt" || fail "config krnbt_baudrate=921600"
-grep -q '^device_tree=bcm2710-rpi-custom.dtb' "$BOOT/config.txt" || fail "config main device_tree"
-if grep -q 'miniuart' "$BOOT/config.txt"; then fail "config references retired miniuart DTB variant"; fi
+# Serial-option sanity checks run on ACTIVE (non-comment) lines only:
+# config.txt keeps the original Avnet four-option block as a commented
+# reference (e.g. "#dtoverlay=pi3-miniuart-bt"), which must not trip us.
+cfg_active=$(sed -e 's/#.*$//' "$BOOT/config.txt")
+if grep -q 'uart0=off' <<<"$cfg_active"; then fail "config must not contain uart0=off (obsolete, see DTS b17faa0e)"; fi
+grep -q 'dtparam=krnbt_baudrate=921600' <<<"$cfg_active" || fail "config krnbt_baudrate=921600"
+grep -q '^device_tree=bcm2710-rpi-custom.dtb' <<<"$cfg_active" || fail "config main device_tree"
+if grep -q 'miniuart' <<<"$cfg_active"; then fail "config references retired miniuart DTB variant"; fi
 grep -q 'regdom=CN' "$BOOT/cmdline.txt" || fail "cmdline regdom"
 if grep -q 'init=' "$BOOT/cmdline.txt"; then fail "cmdline must not contain init= (first-boot resize trap)"; fi
 echo "cmdline.txt: $(cat "$BOOT/cmdline.txt")"
