@@ -72,6 +72,9 @@ trap cleanup EXIT
 echo "== 3. boot partition: kernel + DTB + overlays =="
 install -m 755 "$ARTDIR/kernel8.img"             "$BOOT/kernel8.img"
 install -m 644 "$ARTDIR/bcm2710-rpi-custom.dtb"  "$BOOT/bcm2710-rpi-custom.dtb"
+# "serial option 2" variant (BT on mini-uart, PL011 on header) - selectable
+# in config.txt via device_tree=
+install -m 644 "$ARTDIR/bcm2710-rpi-custom-miniuart.dtb" "$BOOT/bcm2710-rpi-custom-miniuart.dtb"
 mkdir -p "$BOOT/overlays"
 cp -f "$ARTDIR"/overlays/*.dtbo "$BOOT/overlays/" 2>/dev/null || true
 # stale initramfs of the stock kernel would break auto_initramfs - remove
@@ -213,11 +216,17 @@ echo "== 11. sanity checks =="
 fail() { echo "SANITY FAIL: $*"; exit 1; }
 [ -f "$BOOT/kernel8.img" ] || fail kernel8.img
 [ -f "$BOOT/bcm2710-rpi-custom.dtb" ] || fail dtb
+[ -f "$BOOT/bcm2710-rpi-custom-miniuart.dtb" ] || fail dtb-variant
 [ -f "$BOOT/dt-blob.bin" ] || fail dt-blob.bin
 [ -f "$BOOT/bootcode.bin" ] || fail bootcode.bin
 [ -f "$BOOT/start.elf" ] || fail start.elf
 [ -f "$BOOT/ssh" ] || fail ssh
-grep -q 'uart0=off' "$BOOT/config.txt" || fail "config uart0=off"
+# BT now lives on the PL011 inside the DT (uart0 enabled, rewrite escaped);
+# the old "uart0=off" guard is obsolete and must NOT be present, and the
+# 2-wire-proven BT baud must be set.
+if grep -q 'uart0=off' "$BOOT/config.txt"; then fail "config must not contain uart0=off (BT is on PL011 now, see DTS b17faa0e)"; fi
+grep -q 'dtparam=krnbt_baudrate=921600' "$BOOT/config.txt" || fail "config krnbt_baudrate=921600"
+grep -q '^device_tree=bcm2710-rpi-custom.dtb' "$BOOT/config.txt" || fail "config main device_tree"
 grep -q 'regdom=CN' "$BOOT/cmdline.txt" || fail "cmdline regdom"
 if grep -q 'init=' "$BOOT/cmdline.txt"; then fail "cmdline must not contain init= (first-boot resize trap)"; fi
 echo "cmdline.txt: $(cat "$BOOT/cmdline.txt")"
