@@ -84,30 +84,20 @@ jobs:
         run: |
           set -e
           DTB=arch/arm64/boot/dts/broadcom/bcm2710-rpi-custom.dtb
-          DTB2=arch/arm64/boot/dts/broadcom/bcm2710-rpi-custom-miniuart.dtb
           test -f "$DTB" || { echo "::error::$DTB was not built - check Makefile entry"; exit 1; }
-          test -f "$DTB2" || { echo "::error::$DTB2 was not built - check Makefile entry"; exit 1; }
-          ls -l "$DTB" "$DTB2"
+          ls -l "$DTB"
           # 反编译抽查关键节点，避免"编译通过但节点没进去"的隐性错误
           dtc -I dtb -O dts "$DTB" -o smartedge.dts
-          for node in "sc16is740@0" "mcp2515@1" "tpm_tis@2" "attiny@33" "gpio@43" "gpio@44" "rtc@51"; do
+          for node in "sc16is740@0" "mcp2515@1" "tpm_tis@2" "attiny@33" "gpio@43" "gpio@44" "rtc@51" "uart0_hat_pins" "uart1_bt_pins"; do
             grep -q "$node" smartedge.dts || { echo "::error::missing node: $node"; exit 1; }
             echo "ok: $node"
           done
-          # 变体（option 2: BT 上 mini-uart、PL011 上排针）反编译抽查
-          dtc -I dtb -O dts "$DTB2" -o smartedge-miniuart.dts
-          for node in "uart0_hat_pins" "uart1_bt_pins" "sc16is740@0" "attiny@33"; do
-            grep -q "$node" smartedge-miniuart.dts || { echo "::error::variant missing node: $node"; exit 1; }
-          done
-          echo "ok: variant nodes"
 
       - name: Upload device trees
         uses: actions/upload-artifact@v4
         with:
           name: smartedge-dtbs
-          path: |
-            arch/arm64/boot/dts/broadcom/bcm2710-rpi-custom.dtb
-            arch/arm64/boot/dts/broadcom/bcm2710-rpi-custom-miniuart.dtb
+          path: arch/arm64/boot/dts/broadcom/bcm2710-rpi-custom.dtb
           retention-days: 7
 
   # ---------------------------------------------------------------
