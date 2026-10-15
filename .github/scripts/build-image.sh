@@ -6,7 +6,8 @@
 #
 # Environment:
 #   ARTDIR  - directory with the unpacked kernel build artifact
-#             (kernel8.img, bcm2710-rpi-custom.dtb, overlays/, modules.tar.gz)
+#             (kernel8.img, bcm2710-rpi-custom.dtb,
+#              bcm2710-rpi-custom-btpl011.dtb, overlays/, modules.tar.gz)
 #   WORKDIR - scratch directory (runner temp)
 #   IMAGE_VARIANT - "lite" (default) or "desktop": which stock OS image to
 #             build from. Both get identical SmartEdge injection.
@@ -72,6 +73,9 @@ trap cleanup EXIT
 echo "== 3. boot partition: kernel + DTB + overlays =="
 install -m 755 "$ARTDIR/kernel8.img"             "$BOOT/kernel8.img"
 install -m 644 "$ARTDIR/bcm2710-rpi-custom.dtb"  "$BOOT/bcm2710-rpi-custom.dtb"
+# vendor serial option 0/1 variant DTB (BT on the PL011); required so
+# the four-option block in config.txt stays fully selectable
+install -m 644 "$ARTDIR/bcm2710-rpi-custom-btpl011.dtb"  "$BOOT/bcm2710-rpi-custom-btpl011.dtb"
 mkdir -p "$BOOT/overlays"
 cp -f "$ARTDIR"/overlays/*.dtbo "$BOOT/overlays/" 2>/dev/null || true
 # stale initramfs of the stock kernel would break auto_initramfs - remove
@@ -213,6 +217,7 @@ echo "== 11. sanity checks =="
 fail() { echo "SANITY FAIL: $*"; exit 1; }
 [ -f "$BOOT/kernel8.img" ] || fail kernel8.img
 [ -f "$BOOT/bcm2710-rpi-custom.dtb" ] || fail dtb
+[ -f "$BOOT/bcm2710-rpi-custom-btpl011.dtb" ] || fail "variant dtb (btpl011)"
 [ -f "$BOOT/dt-blob.bin" ] || fail dt-blob.bin
 [ -f "$BOOT/bootcode.bin" ] || fail bootcode.bin
 [ -f "$BOOT/start.elf" ] || fail start.elf
