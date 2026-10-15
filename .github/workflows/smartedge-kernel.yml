@@ -24,7 +24,7 @@ on:
       defconfig:
         description: "Kernel defconfig to build"
         required: true
-        default: "bcm2711_defconfig"
+        default: "bcm2711_avnet_defconfig"
   push:
     branches:
       - smartedge-rpi-6.18.y
@@ -166,7 +166,7 @@ jobs:
       - name: Kernel config
         run: |
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
-               ${{ inputs.defconfig || 'bcm2711_defconfig' }}
+               ${{ inputs.defconfig || 'bcm2711_avnet_defconfig' }}
 
       - name: Build kernel
         run: |
@@ -199,6 +199,6 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: smartedge-kernel-${{ inputs.defconfig || 'bcm2711_defconfig' }}
+          name: smartedge-kernel-${{ inputs.defconfig || 'bcm2711_avnet_defconfig' }}
           path: out/
           retention-days: 14
