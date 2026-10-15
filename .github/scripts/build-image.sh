@@ -222,18 +222,17 @@ fail() { echo "SANITY FAIL: $*"; exit 1; }
 [ -f "$BOOT/bootcode.bin" ] || fail bootcode.bin
 [ -f "$BOOT/start.elf" ] || fail start.elf
 [ -f "$BOOT/ssh" ] || fail ssh
-# Single-DTB serial arrangement (commit 3f1d1e0f family): PL011 on the
-# header (/dev/serial0), BT on the mini-uart @921600, option 3 =
-# smartedge_bt=off. The old "uart0=off" guard is obsolete and must NOT
-# be present.
-# Serial-option sanity checks run on ACTIVE (non-comment) lines only:
-# config.txt keeps the original Avnet four-option block as a commented
-# reference (e.g. "#dtoverlay=pi3-miniuart-bt"), which must not trip us.
+# Serial-option sanity checks run on ACTIVE (non-comment) lines only.
+# Shipped default = vendor option 1 (2026-10-15): BT on the PL011,
+# HAT mini-uart on the header (ttyS0 = /dev/serial0 + console), core
+# clock locked at 400 MHz. Checks are layout-specific: any other
+# option is a deliberate choice and must update these lines too.
 cfg_active=$(sed -e 's/#.*$//' "$BOOT/config.txt")
 if grep -q 'uart0=off' <<<"$cfg_active"; then fail "config must not contain uart0=off (obsolete, see DTS b17faa0e)"; fi
 grep -q 'dtparam=krnbt_baudrate=921600' <<<"$cfg_active" || fail "config krnbt_baudrate=921600"
-grep -q '^device_tree=bcm2710-rpi-custom.dtb' <<<"$cfg_active" || fail "config main device_tree"
-if grep -q 'miniuart' <<<"$cfg_active"; then fail "config references retired miniuart DTB variant"; fi
+grep -q '^device_tree=bcm2710-rpi-custom-btpl011.dtb' <<<"$cfg_active" || fail "config device_tree (option 0/1 variant)"
+grep -q '^enable_uart=1' <<<"$cfg_active" || fail "config enable_uart=1 (option 1)"
+grep -q '^core_freq=400' <<<"$cfg_active" || fail "config core_freq=400 (option 1 clock lock)"
 grep -q 'regdom=CN' "$BOOT/cmdline.txt" || fail "cmdline regdom"
 if grep -q 'init=' "$BOOT/cmdline.txt"; then fail "cmdline must not contain init= (first-boot resize trap)"; fi
 echo "cmdline.txt: $(cat "$BOOT/cmdline.txt")"
