@@ -155,6 +155,15 @@ if [ -f "$ROOT/usr/lib/udev/rules.d/60-gpiochip4.rules" ]; then
     echo "removed legacy 60-gpiochip4.rules (gpiochip4 node hijack)"
 fi
 
+# 7d: scrub the base image's stale journal records. The stock 2026-10-06
+# image was booted once during imaging, so /var/log/journal carries entries
+# timestamped with the build date; they survive into every flash and poison
+# journalctl forensics (seen 2026-10-15: a freshly flashed board had boot
+# records dated Oct 6). Remove them; journald re-creates the per-machine-id
+# directory on first boot of the flashed board.
+rm -rf "$ROOT/var/log/journal/"
+echo "cleared stale journal from base image"
+
 echo "== 8. rootfs: ATtiny watchdog feeder =="
 install -m 755 "$REPO_ROOT/image/attiny-wdt-feed.sh" "$ROOT/usr/local/bin/attiny-wdt-feed.sh"
 install -m 644 "$REPO_ROOT/image/attiny-wdt-feed.service" "$ROOT/etc/systemd/system/attiny-wdt-feed.service"
@@ -257,6 +266,9 @@ if grep -q '^pi:' "$ROOT/etc/passwd"; then fail "stock pi user still present (ui
 [ -L "$ROOT/etc/systemd/system/multi-user.target.wants/firstboot-resize.service" ] || fail "resize unit enable"
 [ -s "$ROOT/lib/modules/$KVER/modules.dep" ] || fail "modules.dep ($(stat -c%s "$ROOT/lib/modules/$KVER/modules.dep" 2>/dev/null || echo missing))"
 echo "modules.dep size: $(stat -c%s "$ROOT/lib/modules/$KVER/modules.dep")"
+if [ -d "$ROOT/var/log/journal" ] && [ -n "$(ls -A "$ROOT/var/log/journal" 2>/dev/null)" ]; then
+    fail "stale journal still present in rootfs"
+fi
 echo "ALL SANITY CHECKS PASSED"
 
 echo "== 12. detach image =="
