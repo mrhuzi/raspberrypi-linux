@@ -1,113 +1,66 @@
-# For more options and information see
-# http://rptl.io/configtxt
-# Some settings may impact device functionality. See link above for details
-
-# Uncomment some or all of these to enable the optional hardware interfaces
-#dtparam=i2c_arm=on
-#dtparam=i2s=on
-#dtparam=spi=on
-
-# Enable audio (loads snd_bcm2835)
-dtparam=audio=on
-
-# Additional overlays and parameters are documented
-# /boot/firmware/overlays/README
-
-# Automatically load overlays for detected cameras
-camera_auto_detect=1
-
-# Automatically load overlays for detected DSI displays
-display_auto_detect=1
-
-# Automatically load initramfs files, if found
-auto_initramfs=1
-
-# Enable DRM VC4 V3D driver
-dtoverlay=vc4-kms-v3d
-max_framebuffers=2
-
-# Don't have the firmware create an initial video= setting in cmdline.txt.
-# Use the kernel's default instead.
-disable_fw_kms_setup=1
-
-# Run in 64-bit mode
-arm_64bit=1
-
-# Disable compensation for displays with overscan
-disable_overscan=1
-
-# Run as fast as firmware / board allows
-arm_boost=1
-
-[cm4]
-# Enable host mode on the 2711 built-in XHCI USB controller.
-# This line should be removed if the legacy DWC2 controller is required
-# (e.g. for USB device mode) or if USB support is not required.
-otg_mode=1
-
-[cm5]
-dtoverlay=dwc2,dr_mode=host
-
-[pi5]
-dtoverlay=nospi10
-
-[all]
-device_tree=bcm2710-rpi-custom.dtb
-# CPU frequency ceiling for this board (Avnet GPU firmware + custom revision):
-# - commented out / no arm_freq  -> firmware default 1200MHz (board-proven:
-#   4-core full load ~52C, throttled=0x0)
-# - arm_freq=1400 TESTED 2026-10-12: firmware fails to apply it, board dies
-#   before Linux (HDMI black, no sshd, POR loop via ATtiny WDT). DO NOT use.
-arm_freq=1200
+# SmartEdge IIoT Gateway (Pi 3B, BCM2837) - config.txt
+# Board reference: SmartEdge-移植技术文档.md (§6 boot config, §7.5 serial options)
 
 #################################################################
 # Serial UART options for HAT and onboard Bluetooth
 #
-# The original Avnet (Linux 4.14) vendor block is kept verbatim
-# below for reference. On this 6.18 stack ALL FOUR vendor options
-# are reproducible (verified on the board 2026-10-15): the UART
-# roles are fused into the device tree at compile time, so options
-# are selected by swapping the device_tree main line - never by
-# enabling the vendor overlay lines.
+# All four vendor options are reproducible (board-verified
+# 2026-10-15): UART roles are fused into the DTBs at compile time,
+# so switching = editing the device_tree line below. Never enable
+# the vendor overlay lines (pi3-miniuart-bt / pi3-disable-bt).
 #
-#   * option 0 (BT on ttyAMA0/PL011, no HAT UART):
-#       device_tree=bcm2710-rpi-custom-btpl011.dtb
-#     (replace the main device_tree line; keep enable_uart
-#     commented - the firmware keeps the mini-uart disabled when
-#     it carries nothing, matching stock option 0)
-#   * option 1 (option 0 + ttyS0 mini-uart for the HAT on
-#     GPIO14/15 = /dev/serial0, console, core clock locked):
-#       device_tree=bcm2710-rpi-custom-btpl011.dtb  (as above)
-#       enable_uart=1
-#     (add core_freq=400 to pin the core at 400 MHz instead of
-#     enable_uart's implicit 250, preserving vc4/HDMI bandwidth;
-#     both variants board-verified)
-#   * option 2 (DEFAULT, active below): PL011 on the GPIO header
-#     = /dev/serial0 (ttyAMA0, console), onboard BT on the
-#     mini-uart @921600, presented as hci0 (no /dev/serial1 node
-#     while the serdev BT owns the port)
-#   * option 3 (BT off): uncomment dtparam=smartedge_bt=off (with
-#     the default DTB the mini-uart then shows up as a plain
-#     /dev/ttyS0 on GPIO32/33; serial0 stays on the PL011)
+#   option 0: BT on ttyAMA0/PL011, no HAT UART
+#             device_tree=bcm2710-rpi-custom-btpl011.dtb
+#             (comment out enable_uart=1 - the firmware keeps the
+#             unused mini-uart disabled, stock option-0 semantics)
+#   option 1: option 0 + ttyS0 mini-uart for the HAT on GPIO14/15
+#             (= /dev/serial0 + console), core clock locked
+#             device_tree=bcm2710-rpi-custom-btpl011.dtb
+#             enable_uart=1   [core_freq=400: lock at 400 MHz
+#                              instead of enable_uart's implicit 250,
+#                              preserves vc4/HDMI bandwidth]  << ACTIVE
+#   option 2: PL011 on the GPIO header = /dev/serial0 (ttyAMA0,
+#             console), BT on the mini-uart @921600 = hci0
+#             device_tree=bcm2710-rpi-custom.dtb
+#             enable_uart=1   (core-clock lock for the mini-uart BT)
+#   option 3: BT off (mini-uart then = plain /dev/ttyS0 on
+#             GPIO32/33 under option 2): uncomment smartedge_bt=off
 #
-# NOTE: Only one of these options should be enabled at one time
+# Vendor original (reference): option 0 default / option 1
+# enable_uart=1 / option 2 dtoverlay=pi3-miniuart-bt + core_freq=250 /
+# option 3 dtoverlay=pi3-disable-bt
+#
+# NOTE: Only one option active at a time
 #################################################################
-### Serial option 0: Onboard Bluetooth using ttyAMA0
-# (this is default if no other option selected)
-### Serial option 1: Enable ttyS0 (mini-uart) for HAT (/dev/serial0), onboard Bluetooth is using ttyAMA0
-#enable_uart=1
-### Serial option 2: Bluetooth (/dev/serial1) to use ttyS0 (mini-uart), HAT (/dev/serial0) to use ttyAMA0
-#dtoverlay=pi3-miniuart-bt
-#core_freq=250
-### Serial option 3: Disable onboard bluetooth, ttyAMA0 enabled for HAT usage (/dev/serial0)
-#dtoverlay=pi3-disable-bt
 
-# --- 6.18 stack: active lines = vendor option 2 (do NOT enable the vendor overlay lines above) ---
-# enable_uart=1 here (option-2 layout) only locks the core clock the
-# mini-uart BT baud rate depends on; it does NOT select option 1.
+# --- ACTIVE: vendor option 1 (BT on PL011, HAT mini-uart on the header) ---
+device_tree=bcm2710-rpi-custom-btpl011.dtb
 enable_uart=1
+core_freq=400
 # BT baud rate (921600 = proven 2-wire rate; 3M intermittently times out)
 dtparam=krnbt_baudrate=921600
-# Uncomment for vendor option 3 (BT off; the mini-uart then shows up as
-# a plain /dev/ttyS0 on GPIO32/33; /dev/serial0 stays on the PL011):
+# vendor option 3: uncomment to disable onboard BT
 #dtparam=smartedge_bt=off
+
+# --- hardware interfaces ---
+dtparam=audio=on
+camera_auto_detect=1
+display_auto_detect=1
+
+# --- display / DRM (vc4 KMS owns HDMI; firmware must not pre-set video=) ---
+dtoverlay=vc4-kms-v3d
+max_framebuffers=2
+disable_fw_kms_setup=1
+disable_overscan=1
+
+# --- CPU ---
+arm_64bit=1
+arm_boost=1
+# Avnet GPU firmware + custom revision: default 1200 MHz is board-proven
+# (4-core full load ~52C, throttled=0x0). arm_freq=1400 TESTED 2026-10-12:
+# firmware fails to apply it, board dies before Linux (HDMI black, no sshd,
+# POR loop via ATtiny WDT). DO NOT use.
+arm_freq=1200
+
+# --- initramfs ---
+auto_initramfs=1
