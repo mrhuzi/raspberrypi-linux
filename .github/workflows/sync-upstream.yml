@@ -1,0 +1,43 @@
+name: Sync upstream rpi-6.18.y (one-shot)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [smartedge-rpi-6.18.y]
+    paths:
+      - ".github/workflows/sync-upstream.yml"
+
+# fork default GITHUB_TOKEN is read-only; merge push needs write
+permissions:
+  contents: write
+
+jobs:
+  merge:
+    name: Merge upstream rpi-6.18.y
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout SmartEdge branch (full history for merge base)
+        uses: actions/checkout@v4
+        with:
+          ref: smartedge-rpi-6.18.y
+          fetch-depth: 0
+
+      - name: Merge upstream and push
+        run: |
+          set -e
+          git config user.name  "mrhuzi"
+          git config user.email "mrhuzi@hotmail.com"
+          git remote add upstream https://github.com/raspberrypi/linux.git
+          echo "fetching upstream rpi-6.18.y ..."
+          git fetch upstream rpi-6.18.y
+          UP_SHA=$(git rev-parse upstream/rpi-6.18.y)
+          echo "upstream head: $UP_SHA"
+          if git merge-base --is-ancestor "$UP_SHA" HEAD; then
+            echo "already up to date, nothing to do"
+            exit 0
+          fi
+          git merge --no-ff "$UP_SHA" \
+            -m "Merge upstream rpi-6.18.y ($UP_SHA)"
+          git push origin smartedge-rpi-6.18.y
+          echo "merge commit pushed"
