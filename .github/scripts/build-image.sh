@@ -164,6 +164,17 @@ fi
 rm -rf "$ROOT/var/log/journal/"
 echo "cleared stale journal from base image"
 
+# 7e: ship the board in Asia/Shanghai (user request 2026-10-16) and kill the
+# bogus early-boot clock. timesyncd restores the wall clock from the mtime of
+# /var/lib/systemd/timesync/clock, which the base image carries with its
+# build-date stamp (Oct 6) - the first journal entries of every flash were
+# therefore timestamped Oct 6 until NTP kicked in. Drop the file (and set the
+# timezone while we are in there); the clock file is re-created on the board.
+rm -f "$ROOT/var/lib/systemd/timesync/clock"
+ln -sf /usr/share/zoneinfo/Asia/Shanghai "$ROOT/etc/localtime"
+echo "Asia/Shanghai" > "$ROOT/etc/timezone"
+echo "timezone set to Asia/Shanghai, stale timesyncd clock dropped"
+
 echo "== 8. rootfs: ATtiny watchdog feeder =="
 install -m 755 "$REPO_ROOT/image/attiny-wdt-feed.sh" "$ROOT/usr/local/bin/attiny-wdt-feed.sh"
 install -m 644 "$REPO_ROOT/image/attiny-wdt-feed.service" "$ROOT/etc/systemd/system/attiny-wdt-feed.service"
@@ -269,6 +280,8 @@ echo "modules.dep size: $(stat -c%s "$ROOT/lib/modules/$KVER/modules.dep")"
 if [ -d "$ROOT/var/log/journal" ] && [ -n "$(ls -A "$ROOT/var/log/journal" 2>/dev/null)" ]; then
     fail "stale journal still present in rootfs"
 fi
+grep -q "Asia/Shanghai" "$ROOT/etc/timezone" || fail "timezone not Asia/Shanghai"
+[ -e "$ROOT/var/lib/systemd/timesync/clock" ] && fail "stale timesyncd clock still present" || true
 echo "ALL SANITY CHECKS PASSED"
 
 echo "== 12. detach image =="
